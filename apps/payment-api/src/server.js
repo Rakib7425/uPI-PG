@@ -8,10 +8,93 @@ const BASE_SECURITY_HEADERS = Object.freeze({
   'X-Frame-Options': 'SAMEORIGIN'
 });
 
-function configuredOrigins() {
-  return new Set(String(process.env.YOUPI_ALLOWED_ORIGINS || '').split(/[\s,]+/).map(value => {
-    try { return new URL(value).origin; } catch { return ''; }
-  }).filter(Boolean));
+export function configuredOrigins() {
+  const allowed = new Set();
+  const raw = String(process.env.YOUPI_ALLOWED_ORIGINS || '').trim();
+  const tokens = raw ? raw.split(/[\s,]+/).map(t => t.trim()).filter(Boolean) : [];
+
+  let hasWildcard = false;
+  for (const token of tokens) {
+    if (token === '*') {
+      hasWildcard = true;
+      continue;
+    }
+    try {
+      allowed.add(new URL(token).origin);
+    } catch {
+      // Ignore invalid URL tokens
+    }
+  }
+
+  // Always include internal gateway services if configured
+  const internalUrls = [
+    process.env.BASE_ADMIN_URL,
+    process.env.BASE_CHECKOUT_URL,
+    process.env.BASE_PAYMENT_API_URL,
+    process.env.BASE_DEMO_STORE_URL,
+    process.env.BASE_HELP_URL,
+    process.env.PAYMENT_API_URL,
+    process.env.CHECKOUT_PORTAL_URL,
+    process.env.CONTROL_CENTER_URL
+  ];
+  for (const u of internalUrls) {
+    if (u) {
+      try {
+        allowed.add(new URL(u).origin);
+      } catch {}
+    }
+  }
+
+  // Include configured ports for loopback/localhost
+  const ports = [
+    process.env.PAYMENT_API_PORT || 6100,
+    process.env.CHECKOUT_PORTAL_PORT || 7000,
+    process.env.MERCHANT_ADMIN_PORT || 6001,
+    process.env.COIN_WALLET_STORE_PORT || 5000,
+    process.env.CONTROL_CENTER_PORT || 8090,
+    process.env.HELP_PORTAL_PORT || 3000,
+    process.env.SMS_OBSERVER_PORT || 6002,
+    process.env.GMAIL_OBSERVER_PORT || 6003
+  ];
+  for (const port of ports) {
+    allowed.add(`http://localhost:${port}`);
+    allowed.add(`http://127.0.0.1:${port}`);
+  }
+
+  return { allowed, hasWildcard };
+}
+
+export function isOriginAllowed(origin, req = {}, originConfig = null) {
+  if (!origin) return true;
+  const config = originConfig || configuredOrigins();
+  if (config.hasWildcard) return true;
+  if (config.allowed.has(origin)) return true;
+
+  try {
+    const originUrl = new URL(origin);
+
+    // Allow loopback origins (localhost, 127.0.0.1, [::1]) in non-production
+    const isProd = process.env.NODE_ENV === 'production' || process.env.YOUPI_MODE === 'production';
+    if (!isProd) {
+      if (originUrl.hostname === 'localhost' || originUrl.hostname === '127.0.0.1' || originUrl.hostname === '[::1]') {
+        return true;
+      }
+    }
+
+    // Direct same-origin request against Host header
+    const host = req.headers?.host;
+    if (host && (originUrl.host === host || originUrl.hostname === host)) {
+      return true;
+    }
+
+    // Reverse-proxied request from internal gateway proxy (e.g. merchant-admin or checkout-portal)
+    const forwardedHost = req.headers?.['x-forwarded-host'];
+    if (forwardedHost && (originUrl.host === forwardedHost || originUrl.hostname === forwardedHost)) {
+      return true;
+    }
+  } catch {}
+
+  return false;
 }
 
 const requestWindows = new Map();
@@ -206,23 +289,29 @@ export class HttpServer {
   createServer() {
     return http.createServer(async (req, res) => {
       const origin = req.headers.origin;
-      const origins = configuredOrigins();
-      if (origin && !origins.has(origin)) {
+      const originConfig = configuredOrigins();
+      const originAllowed = isOriginAllowed(origin, req, originConfig);
+      if (origin && !originAllowed) {
         HttpServer.json(res, 403, { error: 'Origin is not allowed.' });
         return;
       }
-      if (origin) res.corsOrigin = origin;
+      if (origin) {
+        res.corsOrigin = origin;
+      } else if (originConfig.hasWildcard) {
+        res.corsOrigin = '*';
+      }
       // Handle CORS preflight
       if (req.method === 'OPTIONS') {
-        if (!origin || !res.corsOrigin) {
+        if (origin && !originAllowed) {
           HttpServer.json(res, 403, { error: 'Origin is not allowed.' });
           return;
         }
         res.writeHead(204, {
-          'Access-Control-Allow-Origin': res.corsOrigin,
+          'Access-Control-Allow-Origin': res.corsOrigin || '*',
           'Vary': 'Origin',
           'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
           'Access-Control-Allow-Headers': 'Content-Type, Authorization, Idempotency-Key, X-Device-Id, X-Device-Token, X-Device-Signature, X-Device-Payload, X-Customer-Token, X-Timestamp, X-Signature',
+          'Access-Control-Max-Age': '86400',
           ...BASE_SECURITY_HEADERS
         });
         res.end();

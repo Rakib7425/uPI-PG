@@ -15,7 +15,7 @@ export function startGmailObserver(port = null, options = {}) {
   // network interface is unnecessary.
   const bindHost = process.env.YOUPI_BIND_HOST || '127.0.0.1';
 
-  return new Promise(resolve => {
+  return new Promise((resolve, reject) => {
     const instance = rawServer.listen(finalPort, bindHost, () => {
       console.log(`[Gmail Observer] Service listening on port ${finalPort}`);
       if (options.autoBoot !== false) {
@@ -29,10 +29,14 @@ export function startGmailObserver(port = null, options = {}) {
         bootPromise: poller.bootPromise,
         close: () => new Promise(cb => {
           poller.stop();
+          if (typeof instance.closeAllConnections === 'function') {
+            instance.closeAllConnections();
+          }
           instance.close(cb);
         })
       });
     });
+    instance.once('error', reject);
   });
 }
 

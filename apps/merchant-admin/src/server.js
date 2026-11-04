@@ -97,8 +97,9 @@ export class AdminServer {
       if (req.method === 'OPTIONS') {
         res.writeHead(204, {
           'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+          'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization, Idempotency-Key, X-Device-Id, X-Device-Token, X-Device-Signature, X-Device-Payload, X-Customer-Token, X-Timestamp, X-Signature',
+          'Access-Control-Max-Age': '86400'
         });
         res.end();
         return;
