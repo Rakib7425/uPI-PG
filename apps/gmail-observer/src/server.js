@@ -190,10 +190,10 @@ export class GmailObserverServer {
           let clientSecret = '';
           let callbackRedirectUri = '';
           const isLocalhost = process.env.YOUPI_MODE === 'localhost' || !process.env.YOUPI_MODE || this.poller.apiBaseUrl?.includes('vvisa.in') || this.poller.apiBaseUrl?.includes('gauravtesting.online');
-          const apiBase = isLocalhost ? `http://127.0.0.1:${process.env.PAYMENT_API_PORT || 6100}` : (this.poller.apiBaseUrl || `http://127.0.0.1:${process.env.PAYMENT_API_PORT || 6100}`);
+          const apiBase = this.poller.apiBaseUrl || (isLocalhost ? `http://127.0.0.1:${process.env.PAYMENT_API_PORT || 6100}` : `http://127.0.0.1:${process.env.PAYMENT_API_PORT || 6100}`);
 
           try {
-            const credRes = await fetch(`${apiBase}/api/v1/admin/gmail/credentials`, { headers: { Authorization: `Bearer ${getObserverToken()}` } });
+            const credRes = await fetch(`${apiBase}/api/v1/admin/gmail/credentials`, { headers: { Authorization: `Bearer ${getObserverToken()}` }, signal: AbortSignal.timeout(3000) });
             if (credRes.ok) {
               const credData = await credRes.json();
               clientId = credData.clientId || credData.gmailConfig?.clientId || '';
@@ -204,16 +204,16 @@ export class GmailObserverServer {
             console.warn('[Gmail Observer] Failed to fetch credentials from Payment API:', e.message);
           }
 
-          if (!clientId || clientId.startsWith('demo-')) {
-            clientId = (this.poller.credentials?.clientId && !this.poller.credentials.clientId.startsWith('demo-'))
+          if (!clientId || clientId.startsWith('demo-') || clientId.startsWith('your-google-')) {
+            clientId = (this.poller.credentials?.clientId && !this.poller.credentials.clientId.startsWith('demo-') && !this.poller.credentials.clientId.startsWith('your-google-'))
               ? this.poller.credentials.clientId
-              : (process.env.GMAIL_CLIENT_ID && !process.env.GMAIL_CLIENT_ID.startsWith('demo-') ? process.env.GMAIL_CLIENT_ID : '');
+              : (process.env.GMAIL_CLIENT_ID && !process.env.GMAIL_CLIENT_ID.startsWith('demo-') && !process.env.GMAIL_CLIENT_ID.startsWith('your-google-') ? process.env.GMAIL_CLIENT_ID : '');
           }
 
-          if (!clientSecret || clientSecret.startsWith('demo-')) {
-            clientSecret = (this.poller.credentials?.clientSecret && !this.poller.credentials.clientSecret.startsWith('demo-'))
+          if (!clientSecret || clientSecret.startsWith('demo-') || clientSecret.startsWith('your-google-')) {
+            clientSecret = (this.poller.credentials?.clientSecret && !this.poller.credentials.clientSecret.startsWith('demo-') && !this.poller.credentials.clientSecret.startsWith('your-google-'))
               ? this.poller.credentials.clientSecret
-              : (process.env.GMAIL_CLIENT_SECRET && !process.env.GMAIL_CLIENT_SECRET.startsWith('demo-') ? process.env.GMAIL_CLIENT_SECRET : '');
+              : (process.env.GMAIL_CLIENT_SECRET && !process.env.GMAIL_CLIENT_SECRET.startsWith('demo-') && !process.env.GMAIL_CLIENT_SECRET.startsWith('your-google-') ? process.env.GMAIL_CLIENT_SECRET : '');
           }
 
           if (!clientId || !clientSecret) {
@@ -234,7 +234,8 @@ export class GmailObserverServer {
               client_secret: clientSecret,
               redirect_uri: redirectUri,
               grant_type: 'authorization_code'
-            }).toString()
+            }).toString(),
+            signal: AbortSignal.timeout(5000)
           });
 
           const tokenData = await tokenRes.json();

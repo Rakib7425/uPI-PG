@@ -1,17 +1,20 @@
-import fs from 'node:fs';
-import { EventEmitter } from 'node:events';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { PaymentStatus } from '@youpi/common';
+import fs from "node:fs";
+import { EventEmitter } from "node:events";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { PaymentStatus } from "@youpi/common";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const rootDir = path.resolve(__dirname, '../../..');
+const rootDir = path.resolve(__dirname, "../../..");
 
 // In production, reliably ensure environment variables from .env are loaded if not already provided
-if (!process.env.BASE_CHECKOUT_URL && typeof process.loadEnvFile === 'function') {
+if (
+  !process.env.BASE_CHECKOUT_URL &&
+  typeof process.loadEnvFile === "function"
+) {
   try {
-    const rootEnv = path.resolve(rootDir, '.env');
+    const rootEnv = path.resolve(rootDir, ".env");
     if (fs.existsSync(rootEnv)) {
       process.loadEnvFile(rootEnv);
     }
@@ -29,39 +32,46 @@ import {
   ObservationRepository,
   SupportTicketRepository,
   AuditLogRepository,
-  DeviceRepository
-} from '@youpi/db';
+  DeviceRepository,
+} from "@youpi/db";
 import {
   QueueEngine,
   TimingEngine,
   AttributionEngine,
   RecoveryEngine,
   WebhookEngine,
-  PaymentVerificationPipeline
-} from '@youpi/core';
-import { HttpServer } from './server.js';
-import { authGuard } from './auth-guard.js';
-import { registerPaymentRoutes } from './routes/payments.routes.js';
-import { registerCheckoutRoutes } from './routes/checkout.routes.js';
-import { registerPollerRoutes } from './routes/pollers.routes.js';
-import { registerAdminRoutes } from './routes/admin.routes.js';
-import { registerStatementRoutes } from './routes/statement.routes.js';
-import { registerCustomerRoutes } from './routes/customer.routes.js';
-import { registerDeviceRoutes } from './routes/device.routes.js';
-import { getWhatsAppBerryService, WhatsAppBerryService } from './services/whatsapp-berry.service.js';
-import { ObserverPollerService } from './services/observer-poller.service.js';
+  PaymentVerificationPipeline,
+} from "@youpi/core";
+import { HttpServer } from "./server.js";
+import { authGuard } from "./auth-guard.js";
+import { registerPaymentRoutes } from "./routes/payments.routes.js";
+import { registerCheckoutRoutes } from "./routes/checkout.routes.js";
+import { registerPollerRoutes } from "./routes/pollers.routes.js";
+import { registerAdminRoutes } from "./routes/admin.routes.js";
+import { registerStatementRoutes } from "./routes/statement.routes.js";
+import { registerCustomerRoutes } from "./routes/customer.routes.js";
+import { registerDeviceRoutes } from "./routes/device.routes.js";
+import {
+  getWhatsAppBerryService,
+  WhatsAppBerryService,
+} from "./services/whatsapp-berry.service.js";
+import { ObserverPollerService } from "./services/observer-poller.service.js";
 
 export function createPaymentApp(customDb = null, options = {}) {
   const db = customDb || getDatabase();
   ensureDatabaseInitialized(db);
   const { defaultMerchant } = runMigrations(db);
   const isCustom = !!customDb;
-  const whatsappBerryService = options.whatsappBerryService || (isCustom ? new WhatsAppBerryService({
-    sessionId: 'test_berry_session',
-    sessionPath: path.resolve(rootDir, 'data/test_berry_auth'),
-    databasePath: path.resolve(rootDir, 'data/test_berry_store.db'),
-    metaFile: path.resolve(rootDir, 'data/test_whatsapp_session.json')
-  }) : getWhatsAppBerryService());
+  const whatsappBerryService =
+    options.whatsappBerryService ||
+    (isCustom
+      ? new WhatsAppBerryService({
+          sessionId: "test_berry_session",
+          sessionPath: path.resolve(rootDir, "data/test_berry_auth"),
+          databasePath: path.resolve(rootDir, "data/test_berry_store.db"),
+          metaFile: path.resolve(rootDir, "data/test_whatsapp_session.json"),
+        })
+      : getWhatsAppBerryService());
 
   const merchantRepo = new MerchantRepository(db);
   const accountRepo = new ReceivingAccountRepository(db);
@@ -79,16 +89,27 @@ export function createPaymentApp(customDb = null, options = {}) {
   // the database, so a malformed value must not reach it: a negative value would expire
   // every session instantly and Infinity would throw a RangeError on toISOString().
   const parseWindowMs = (raw, fallback, label) => {
-    if (raw === undefined || raw === null || String(raw).trim() === '') return fallback;
+    if (raw === undefined || raw === null || String(raw).trim() === "")
+      return fallback;
     const value = Number(raw);
     if (!Number.isFinite(value) || value <= 0 || value > 24 * 60 * 60 * 1000) {
-      console.warn(`[config] Ignoring invalid ${label}=${raw}; using ${fallback}ms.`);
+      console.warn(
+        `[config] Ignoring invalid ${label}=${raw}; using ${fallback}ms.`,
+      );
       return fallback;
     }
     return Math.floor(value);
   };
-  const activeDurationMs = parseWindowMs(process.env.PAYMENT_ACTIVE_WINDOW_MS, 300000, 'PAYMENT_ACTIVE_WINDOW_MS');
-  const processingDurationMs = parseWindowMs(process.env.PAYMENT_PROCESSING_WINDOW_MS, 30000, 'PAYMENT_PROCESSING_WINDOW_MS');
+  const activeDurationMs = parseWindowMs(
+    process.env.PAYMENT_ACTIVE_WINDOW_MS,
+    300000,
+    "PAYMENT_ACTIVE_WINDOW_MS",
+  );
+  const processingDurationMs = parseWindowMs(
+    process.env.PAYMENT_PROCESSING_WINDOW_MS,
+    30000,
+    "PAYMENT_PROCESSING_WINDOW_MS",
+  );
 
   const queueEngine = new QueueEngine({
     sessionRepo,
@@ -96,7 +117,7 @@ export function createPaymentApp(customDb = null, options = {}) {
     eventEmitter,
     auditRepo,
     activeDurationMs,
-    processingDurationMs
+    processingDurationMs,
   });
 
   const timingEngine = new TimingEngine({
@@ -105,7 +126,7 @@ export function createPaymentApp(customDb = null, options = {}) {
     eventEmitter,
     auditRepo,
     activeDurationMs,
-    processingDurationMs
+    processingDurationMs,
   });
 
   const attributionEngine = new AttributionEngine({
@@ -113,13 +134,13 @@ export function createPaymentApp(customDb = null, options = {}) {
     obsRepo,
     ticketRepo,
     auditRepo,
-    eventEmitter
+    eventEmitter,
   });
 
   const webhookEngine = new WebhookEngine({
     db,
     merchantRepo,
-    maxRetries: Number(process.env.WEBHOOK_MAX_RETRIES || 5)
+    maxRetries: Number(process.env.WEBHOOK_MAX_RETRIES || 5),
   });
 
   const recoveryEngine = new RecoveryEngine({
@@ -130,25 +151,30 @@ export function createPaymentApp(customDb = null, options = {}) {
     timingEngine,
     webhookEngine,
     auditRepo,
-    eventEmitter
+    eventEmitter,
   });
 
   const server = new HttpServer();
   server.use(authGuard);
-  let checkoutBaseUrl = process.env.CHECKOUT_PUBLIC_URL
-    || process.env.PUBLIC_APP_URL
-    || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null)
-    || process.env.BASE_CHECKOUT_URL
-    || 'http://localhost:7000';
+  let checkoutBaseUrl =
+    process.env.CHECKOUT_PUBLIC_URL ||
+    process.env.PUBLIC_APP_URL ||
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null) ||
+    process.env.BASE_CHECKOUT_URL ||
+    "http://localhost:7000";
   try {
-    const rootEnv = path.resolve(__dirname, '../../../.env');
+    const rootEnv = path.resolve(__dirname, "../../../.env");
     if (fs.existsSync(rootEnv)) {
-      const raw = fs.readFileSync(rootEnv, 'utf8');
+      const raw = fs.readFileSync(rootEnv, "utf8");
       for (const line of raw.split(/\r?\n/)) {
         const trimmed = line.trim();
-        if (trimmed.startsWith('BASE_CHECKOUT_URL=') && !process.env.CHECKOUT_PUBLIC_URL && !process.env.PUBLIC_APP_URL) {
-          const val = trimmed.split('=')[1]?.trim();
-          if (val) checkoutBaseUrl = val.replace(/^["']|["']$/g, '');
+        if (
+          trimmed.startsWith("BASE_CHECKOUT_URL=") &&
+          !process.env.CHECKOUT_PUBLIC_URL &&
+          !process.env.PUBLIC_APP_URL
+        ) {
+          const val = trimmed.split("=")[1]?.trim();
+          if (val) checkoutBaseUrl = val.replace(/^["']|["']$/g, "");
         }
       }
     }
@@ -162,137 +188,139 @@ export function createPaymentApp(customDb = null, options = {}) {
       if (promoted.expiresAt) {
         timingEngine.startActiveTimer(promoted.id, promoted.expiresAt);
       }
-      server.broadcastSse(promoted.id, 'status_change', {
+      server.broadcastSse(promoted.id, "status_change", {
         status: PaymentStatus.ACTIVE,
         queuePosition: 0,
-        expiresAt: promoted.expiresAt
+        expiresAt: promoted.expiresAt,
       });
-      server.broadcastSse(`queue_${receivingAccountId}`, 'queue_update', {
-        promotedId: promoted.id
+      server.broadcastSse(`queue_${receivingAccountId}`, "queue_update", {
+        promotedId: promoted.id,
       });
     }
     return promoted;
   }
 
-  eventEmitter.on('PAYMENT.OBSERVED_SUCCESS', (data) => {
+  eventEmitter.on("PAYMENT.OBSERVED_SUCCESS", (data) => {
     const session = sessionRepo.findById(data.paymentId);
     if (session) {
-      server.broadcastSse(session.id, 'status_change', {
+      server.broadcastSse(session.id, "status_change", {
         status: PaymentStatus.OBSERVED_SUCCESS,
-        settlementState: 'NOT_RECONCILED',
-        verificationLevel: data.verificationLevel || session.verificationLevel || 1,
+        settlementState: "NOT_RECONCILED",
+        verificationLevel:
+          data.verificationLevel || session.verificationLevel || 1,
         verificationTag: data.verificationTag || session.verificationTag,
-        sources: data.sources || session.verificationSources
+        sources: data.sources || session.verificationSources,
       });
-      webhookEngine.dispatch('OBSERVED_SUCCESS', session).catch(() => {});
+      webhookEngine.dispatch("OBSERVED_SUCCESS", session).catch(() => {});
       handleSlotFreedAndPromote(session.receivingAccountId);
     }
   });
 
-  eventEmitter.on('PAYMENT.MANUAL_REVIEW', (data) => {
+  eventEmitter.on("PAYMENT.MANUAL_REVIEW", (data) => {
     const session = sessionRepo.findById(data.paymentId);
     if (session) {
-      server.broadcastSse(session.id, 'status_change', {
+      server.broadcastSse(session.id, "status_change", {
         status: PaymentStatus.MANUAL_REVIEW,
-        settlementState: 'MANUAL_REVIEW',
-        reason: data.reason || null
+        settlementState: "MANUAL_REVIEW",
+        reason: data.reason || null,
       });
-      webhookEngine.dispatch('MANUAL_REVIEW', session).catch(() => {});
+      webhookEngine.dispatch("MANUAL_REVIEW", session).catch(() => {});
       handleSlotFreedAndPromote(session.receivingAccountId);
     }
   });
 
-  eventEmitter.on('PAYMENT.RECONCILED', (data) => {
+  eventEmitter.on("PAYMENT.RECONCILED", (data) => {
     const session = sessionRepo.findById(data.paymentId);
     if (session && session.status === PaymentStatus.RECONCILED) {
-      server.broadcastSse(session.id, 'status_change', {
+      server.broadcastSse(session.id, "status_change", {
         status: PaymentStatus.RECONCILED,
-        settlementState: 'RECONCILED',
-        statementLineId: data.statementLineId || null
+        settlementState: "RECONCILED",
+        statementLineId: data.statementLineId || null,
       });
-      webhookEngine.dispatch('RECONCILED', session).catch(() => {});
+      webhookEngine.dispatch("RECONCILED", session).catch(() => {});
     }
   });
 
   // When a payment succeeds, fails, expires, or cancels: dispatch webhook & promote next queued customer
-  eventEmitter.on('PAYMENT.SUCCESS', (data) => {
+  eventEmitter.on("PAYMENT.SUCCESS", (data) => {
     const session = sessionRepo.findById(data.paymentId);
     if (session) {
-      server.broadcastSse(session.id, 'status_change', {
+      server.broadcastSse(session.id, "status_change", {
         status: PaymentStatus.SUCCESS,
-        verificationLevel: data.verificationLevel || session.verificationLevel || 1,
+        verificationLevel:
+          data.verificationLevel || session.verificationLevel || 1,
         verificationTag: data.verificationTag || session.verificationTag,
-        sources: data.sources || session.verificationSources
+        sources: data.sources || session.verificationSources,
       });
-      webhookEngine.dispatch('SUCCESS', session).catch(() => {});
+      webhookEngine.dispatch("SUCCESS", session).catch(() => {});
       handleSlotFreedAndPromote(session.receivingAccountId);
     }
   });
 
-  eventEmitter.on('PAYMENT.LEVEL1_VERIFIED', (data) => {
-    server.broadcastSse(data.paymentId, 'status_change', {
-      status: 'VERIFYING',
+  eventEmitter.on("PAYMENT.LEVEL1_VERIFIED", (data) => {
+    server.broadcastSse(data.paymentId, "status_change", {
+      status: "VERIFYING",
       verificationLevel: 1,
       verificationTag: data.verificationTag,
-      message: 'Payment detected! Verifying secondary channel...'
+      message: "Payment detected! Verifying secondary channel...",
     });
   });
 
-  eventEmitter.on('PAYMENT.FAILED', (data) => {
+  eventEmitter.on("PAYMENT.FAILED", (data) => {
     const session = sessionRepo.findById(data.paymentId);
     if (session) {
-      webhookEngine.dispatch('FAILED', session).catch(() => {});
+      webhookEngine.dispatch("FAILED", session).catch(() => {});
       handleSlotFreedAndPromote(session.receivingAccountId);
     }
   });
 
-  eventEmitter.on('PAYMENT.EXPIRED', (data) => {
+  eventEmitter.on("PAYMENT.EXPIRED", (data) => {
     const session = sessionRepo.findById(data.paymentId);
     if (session) {
-      server.broadcastSse(session.id, 'status_change', {
-        status: PaymentStatus.EXPIRED
+      server.broadcastSse(session.id, "status_change", {
+        status: PaymentStatus.EXPIRED,
       });
-      webhookEngine.dispatch('EXPIRED', session).catch(() => {});
+      webhookEngine.dispatch("EXPIRED", session).catch(() => {});
       handleSlotFreedAndPromote(session.receivingAccountId);
     }
   });
 
-  eventEmitter.on('PAYMENT.CANCELLED', (data) => {
+  eventEmitter.on("PAYMENT.CANCELLED", (data) => {
     const session = sessionRepo.findById(data.paymentId);
     if (session) {
-      server.broadcastSse(session.id, 'status_change', {
-        status: PaymentStatus.CANCELLED
+      server.broadcastSse(session.id, "status_change", {
+        status: PaymentStatus.CANCELLED,
       });
-      webhookEngine.dispatch('CANCELLED', session).catch(() => {});
+      webhookEngine.dispatch("CANCELLED", session).catch(() => {});
       handleSlotFreedAndPromote(session.receivingAccountId);
     }
   });
 
-  eventEmitter.on('PAYMENT.FRAUD_BLOCKED', (data) => {
+  eventEmitter.on("PAYMENT.FRAUD_BLOCKED", (data) => {
     if (data.sessionId) {
-      server.broadcastSse(data.sessionId, 'status_change', {
-        status: 'BLOCKED',
+      server.broadcastSse(data.sessionId, "status_change", {
+        status: "BLOCKED",
         isBanned: true,
         fraudDetected: true,
         orderId: data.orderId,
-        reason: data.reason || 'FRAUDULENT_PAYMENT_INJECTION',
+        reason: data.reason || "FRAUDULENT_PAYMENT_INJECTION",
         blockedNotice: {
-          title: 'FRAUDULENT ACTIVITY DETECTED',
-          subtitle: 'Payment Session Terminated & Account Suspended',
-          message: 'Our automated verification engine detected fraudulent payment activity associated with this account. Access has been immediately suspended while our security operations team investigates the issue.',
-          investigating: true
-        }
+          title: "FRAUDULENT ACTIVITY DETECTED",
+          subtitle: "Payment Session Terminated & Account Suspended",
+          message:
+            "Our automated verification engine detected fraudulent payment activity associated with this account. Access has been immediately suspended while our security operations team investigates the issue.",
+          investigating: true,
+        },
       });
-      server.broadcastSse(data.sessionId, 'account_blocked', {
-        status: 'BLOCKED',
+      server.broadcastSse(data.sessionId, "account_blocked", {
+        status: "BLOCKED",
         isBanned: true,
         fraudDetected: true,
         orderId: data.orderId,
-        reason: data.reason || 'FRAUDULENT_PAYMENT_INJECTION'
+        reason: data.reason || "FRAUDULENT_PAYMENT_INJECTION",
       });
     }
   });
-
 
   // Continuous 1-second background queue sync and auto-expiry daemon
   const queueSyncDaemon = setInterval(() => {
@@ -300,35 +328,45 @@ export function createPaymentApp(customDb = null, options = {}) {
       const nowIso = new Date().toISOString();
 
       // Sweep expired ACTIVE sessions
-      const expiredActive = db.query(`
+      const expiredActive = db.query(
+        `
         SELECT id, merchant_id, order_id, receiving_account_id FROM payment_sessions
         WHERE status = 'ACTIVE' AND expires_at <= ?
-      `, [nowIso]);
+      `,
+        [nowIso],
+      );
 
       for (const row of expiredActive) {
         sessionRepo.transitionToTerminal(row.id, PaymentStatus.EXPIRED);
-        server.broadcastSse(row.id, 'status_change', { status: PaymentStatus.EXPIRED });
-        eventEmitter.emit('PAYMENT.EXPIRED', {
+        server.broadcastSse(row.id, "status_change", {
+          status: PaymentStatus.EXPIRED,
+        });
+        eventEmitter.emit("PAYMENT.EXPIRED", {
           paymentId: row.id,
           orderId: row.order_id,
-          merchantId: row.merchant_id
+          merchantId: row.merchant_id,
         });
         handleSlotFreedAndPromote(row.receiving_account_id);
       }
 
       // Sweep failed PROCESSING sessions
-      const failedProc = db.query(`
+      const failedProc = db.query(
+        `
         SELECT id, merchant_id, order_id, receiving_account_id FROM payment_sessions
         WHERE status = 'PROCESSING' AND processing_expires_at <= ?
-      `, [nowIso]);
+      `,
+        [nowIso],
+      );
 
       for (const row of failedProc) {
         sessionRepo.transitionToTerminal(row.id, PaymentStatus.FAILED);
-        server.broadcastSse(row.id, 'status_change', { status: PaymentStatus.FAILED });
-        eventEmitter.emit('PAYMENT.FAILED', {
+        server.broadcastSse(row.id, "status_change", {
+          status: PaymentStatus.FAILED,
+        });
+        eventEmitter.emit("PAYMENT.FAILED", {
           paymentId: row.id,
           orderId: row.order_id,
-          merchantId: row.merchant_id
+          merchantId: row.merchant_id,
         });
         handleSlotFreedAndPromote(row.receiving_account_id);
       }
@@ -353,12 +391,18 @@ export function createPaymentApp(customDb = null, options = {}) {
   // but a throw inside it — or a non-promise return — must not escape the
   // interval callback, because an exception thrown from a timer callback is
   // an unhandled error that can take the process down.
-  const webhookRetryDaemon = setInterval(() => {
-    try {
-      const outcome = webhookEngine.recoverOutbox().then(() => webhookEngine.retryPending());
-      if (outcome && typeof outcome.catch === 'function') outcome.catch(() => {});
-    } catch {}
-  }, Number(process.env.WEBHOOK_RETRY_INTERVAL_MS || 5000));
+  const webhookRetryDaemon = setInterval(
+    () => {
+      try {
+        const outcome = webhookEngine
+          .recoverOutbox()
+          .then(() => webhookEngine.retryPending());
+        if (outcome && typeof outcome.catch === "function")
+          outcome.catch(() => {});
+      } catch {}
+    },
+    Number(process.env.WEBHOOK_RETRY_INTERVAL_MS || 5000),
+  );
 
   if (webhookRetryDaemon.unref) webhookRetryDaemon.unref();
 
@@ -375,33 +419,37 @@ export function createPaymentApp(customDb = null, options = {}) {
     smsPort: Number(process.env.SMS_OBSERVER_PORT || 6002),
     gmailPort: Number(process.env.GMAIL_OBSERVER_PORT || 6003),
     smsBaseUrl: process.env.SMS_OBSERVER_URL,
-    gmailBaseUrl: process.env.GMAIL_OBSERVER_URL
+    gmailBaseUrl: process.env.GMAIL_OBSERVER_URL,
   });
 
   // Execute crash recovery on boot (AFTER event listeners are wired so recovered terminal transitions emit webhooks)
   const recoveryStats = recoveryEngine.recover();
   // Replay only outboxed transitions that lack a durable delivery record.
-  webhookEngine.recoverOutbox().catch(err => {
-    console.error('[webhook] Failed to recover terminal-event outbox:', err.message);
+  webhookEngine.recoverOutbox().catch((err) => {
+    console.error(
+      "[webhook] Failed to recover terminal-event outbox:",
+      err.message,
+    );
   });
 
   // Immediately kick off a background retry sweep for any recovered in-flight or backfilled webhooks
   try {
     const initialRetry = webhookEngine.retryPending();
-    if (initialRetry && typeof initialRetry.catch === 'function') initialRetry.catch(() => {});
+    if (initialRetry && typeof initialRetry.catch === "function")
+      initialRetry.catch(() => {});
   } catch {}
 
   // Health check routes
   const healthHandler = (req, res) => {
     HttpServer.json(res, 200, {
-      status: 'UP',
-      service: 'payment-api',
+      status: "UP",
+      service: "payment-api",
       timestamp: new Date().toISOString(),
-      recoveryStats
+      recoveryStats,
     });
   };
-  server.get('/health', healthHandler);
-  server.get('/api/v1/health', healthHandler);
+  server.get("/health", healthHandler);
+  server.get("/api/v1/health", healthHandler);
 
   const pipeline = new PaymentVerificationPipeline({
     db,
@@ -412,7 +460,7 @@ export function createPaymentApp(customDb = null, options = {}) {
     auditRepo,
     merchantRepo,
     server,
-    eventEmitter
+    eventEmitter,
   });
 
   const context = {
@@ -437,7 +485,7 @@ export function createPaymentApp(customDb = null, options = {}) {
     whatsappBerryService,
     webhookEngine,
     observerPollerService,
-    otpCooldownMs: options.otpCooldownMs
+    otpCooldownMs: options.otpCooldownMs,
   };
 
   registerPaymentRoutes(server, context);
@@ -453,10 +501,13 @@ export function createPaymentApp(customDb = null, options = {}) {
     clearInterval(webhookRetryDaemon);
     observerPollerService.destroy();
     timingEngine.destroy();
-    if (typeof attributionEngine.destroy === 'function') {
+    if (typeof attributionEngine.destroy === "function") {
       attributionEngine.destroy();
     }
-    if (whatsappBerryService && typeof whatsappBerryService.disconnect === 'function') {
+    if (
+      whatsappBerryService &&
+      typeof whatsappBerryService.disconnect === "function"
+    ) {
       whatsappBerryService.disconnect({ cleanSession: false }).catch(() => {});
     }
   }
@@ -465,34 +516,44 @@ export function createPaymentApp(customDb = null, options = {}) {
     server,
     context,
     destroy,
-    rawServer: server.createServer()
+    rawServer: server.createServer(),
   };
 }
 
 export function startServer(port = null, customDb = null) {
-  const finalPort = port ?? Number(
-  process.env.PORT || process.env.PAYMENT_API_PORT || 6100
-  );
+  const finalPort =
+    port ?? Number(process.env.PORT || process.env.PAYMENT_API_PORT || 6100);
   const app = createPaymentApp(customDb);
 
-  return new Promise(resolve => {
+  return new Promise((resolve, reject) => {
     // Loopback by default; reach this service via the local Cloudflare Tunnel, not 0.0.0.0.
-    const bindHost = process.env.YOUPI_BIND_HOST || (process.env.RENDER ? '0.0.0.0' : '127.0.0.1');
+    const bindHost =
+      process.env.YOUPI_BIND_HOST ||
+      (process.env.RENDER ? "0.0.0.0" : "127.0.0.1");
     const instance = app.rawServer.listen(finalPort, bindHost, () => {
-      console.log(`[Payment API] Server listening on port ${finalPort}`);
+      const boundPort = instance.address()?.port ?? finalPort;
+      console.log(`[Payment API] Server listening on port ${boundPort}`);
       resolve({
         app,
-        port: finalPort,
-        close: () => new Promise(cb => {
-          app.destroy();
-          instance.close(cb);
-        })
+        port: boundPort,
+        close: () =>
+          new Promise((cb) => {
+            app.destroy();
+            if (typeof instance.closeAllConnections === "function") {
+              instance.closeAllConnections();
+            }
+            instance.close(cb);
+          }),
       });
     });
+    instance.once("error", reject);
   });
 }
 
 // Auto-run if executed directly as main script
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (
+  process.argv[1] &&
+  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+) {
   startServer();
 }
