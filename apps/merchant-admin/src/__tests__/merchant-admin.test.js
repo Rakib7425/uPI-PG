@@ -106,4 +106,33 @@ describe('Merchant Admin Integration Tests', () => {
     assert.ok(res.text.includes('standInputMobile'));
     assert.ok(res.text.includes('Accepts payments above ₹2,000'));
   });
+
+  test('OPTIONS preflight returns 204 with comprehensive CORS headers', async () => {
+    const res = await new Promise((resolve, reject) => {
+      const req = http.request(`${baseUrl}/api/v1/admin/merchants`, {
+        method: 'OPTIONS',
+        headers: {
+          'Origin': 'http://localhost:6001',
+          'Access-Control-Request-Method': 'POST'
+        }
+      }, res => {
+        resolve({
+          status: res.statusCode,
+          allowOrigin: res.headers['access-control-allow-origin'],
+          allowMethods: res.headers['access-control-allow-methods'],
+          allowHeaders: res.headers['access-control-allow-headers']
+        });
+      });
+      req.on('error', reject);
+      req.end();
+    });
+
+    assert.equal(res.status, 204);
+    assert.equal(res.allowOrigin, '*');
+    assert.ok(res.allowMethods.includes('POST'));
+    assert.ok(res.allowMethods.includes('PUT'));
+    assert.ok(res.allowMethods.includes('DELETE'));
+    assert.ok(res.allowHeaders.includes('Content-Type'));
+    assert.ok(res.allowHeaders.includes('Authorization'));
+  });
 });

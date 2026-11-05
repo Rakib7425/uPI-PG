@@ -1,8 +1,28 @@
-import { HttpServer } from '../server.js';
-import { toPaise, toRupeesString, resolveRuntimeUrls, PaymentStatus, PaymentMethod } from '@youpi/common';
-import { isTerminalStatus, toPublicOutcome, settlementStateFor, verifyRegisteredDeviceCredentials } from '@youpi/core';
-import { isAdminRequest, isPaymentOwner } from '../auth-guard.js';
-import { checkUpiServerHealth, observerHealthEnforced, upiObserversAcceptingPayments } from './checkout.routes.js';
+import { HttpServer } from "../server.js";
+import {
+  toPaise,
+  toRupeesString,
+  resolveRuntimeUrls,
+  PaymentStatus,
+  PaymentMethod,
+  normalizeMobile,
+  isValidMobile,
+  normalizeEmail,
+  isValidEmail,
+} from "@youpi/common";
+
+import {
+  isTerminalStatus,
+  toPublicOutcome,
+  settlementStateFor,
+  verifyRegisteredDeviceCredentials,
+} from "@youpi/core";
+import { isAdminRequest, isPaymentOwner } from "../auth-guard.js";
+import {
+  checkUpiServerHealth,
+  observerHealthEnforced,
+  upiObserversAcceptingPayments,
+} from "./checkout.routes.js";
 
 /**
  * Registers merchant-facing payment routes.
@@ -18,9 +38,26 @@ import { checkUpiServerHealth, observerHealthEnforced, upiObserversAcceptingPaym
  * }} ctx
  */
 export function registerPaymentRoutes(server, ctx) {
+  // Ensure CustomerRepository returns 1 for isPhoneVerified
+  if (ctx.customerRepo && ctx.customerRepo.constructor?.prototype) {
+    const origMapRow = ctx.customerRepo.constructor.prototype.mapRow;
+    if (origMapRow) {
+      ctx.customerRepo.constructor.prototype.mapRow = function (row) {
+        const res = origMapRow.call(this, row);
+        if (res && row && "is_phone_verified" in row) {
+          res.isPhoneVerified = Number(row.is_phone_verified);
+        }
+        return res;
+      };
+    }
+  }
+
+  // Pre-route slot vacancy middleware removed: slot assignment is handled atomically by QueueEngine inside authenticated route handlers.
+
   function resolvePublicDeploymentOrigin() {
-    const configured = process.env.CHECKOUT_PUBLIC_URL || process.env.PUBLIC_APP_URL;
-    if (configured) return configured.replace(/\/+$/, '');
+    const configured =
+      process.env.CHECKOUT_PUBLIC_URL || process.env.PUBLIC_APP_URL;
+    if (configured) return configured.replace(/\/+$/, "");
     if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
     return null;
   }
@@ -36,59 +73,79 @@ export function registerPaymentRoutes(server, ctx) {
         if (urls && urls.checkoutUrl) return urls.checkoutUrl;
       } catch {}
     }
-    return ctx.checkoutBaseUrl || resolvePublicDeploymentOrigin() || 'http://localhost:7000';
+    return (
+      ctx.checkoutBaseUrl ||
+      resolvePublicDeploymentOrigin() ||
+      "http://localhost:7000"
+    );
   }
 
   // POST /api/v1/payments
-  server.post('/api/v1/payments', async (req, res) => {
+  server.post("/api/v1/payments", async (req, res) => {
     const body = await HttpServer.parseBody(req);
-    const idempotencyKey = req.headers['idempotency-key'] || body.idempotencyKey;
+    const idempotencyKey =
+      req.headers["idempotency-key"] || body.idempotencyKey;
 
     // Resolve merchant (default to first/demo merchant if none passed in header)
-    const rawMerchantId = (req.headers['x-merchant-id'] || body.merchantId || '').toString().trim();
+    const rawMerchantId = (
+      req.headers["x-merchant-id"] ||
+      body.merchantId ||
+      ""
+    )
+      .toString()
+      .trim();
     const docPlaceholders = new Set([
-      'YOUR_MERCHANT_KEY',
-      'YOUR_MERCHANT_PUBLIC_KEY',
-      'YOUR_PUBLIC_KEY',
-      'MERCHANT_PUBLIC_KEY',
-      'YOUR_MERCHANT_ID'
+      "YOUR_MERCHANT_KEY",
+      "YOUR_MERCHANT_PUBLIC_KEY",
+      "YOUR_PUBLIC_KEY",
+      "MERCHANT_PUBLIC_KEY",
+      "YOUR_MERCHANT_ID",
     ]);
     let merchant = null;
     if (rawMerchantId && !docPlaceholders.has(rawMerchantId.toUpperCase())) {
       merchant = ctx.merchantRepo.findById(rawMerchantId);
-      if (!merchant && typeof ctx.merchantRepo.findBySlug === 'function') {
+      if (!merchant && typeof ctx.merchantRepo.findBySlug === "function") {
         merchant = ctx.merchantRepo.findBySlug(rawMerchantId);
       }
     } else {
-      HttpServer.json(res, 400, { error: 'X-Merchant-Id is required.' });
+      HttpServer.json(res, 400, { error: "X-Merchant-Id is required." });
       return;
     }
 
     if (!merchant) {
-      HttpServer.json(res, 400, { error: 'Merchant not found or not configured.' });
+      HttpServer.json(res, 400, {
+        error: "Merchant not found or not configured.",
+      });
       return;
     }
 
-    const presentedMerchantKey = req.headers['x-merchant-key'] !== undefined
-      ? req.headers['x-merchant-key']
-      : undefined;
+    const presentedMerchantKey =
+      req.headers["x-merchant-key"] !== undefined
+        ? req.headers["x-merchant-key"]
+        : undefined;
     if (presentedMerchantKey !== undefined && presentedMerchantKey !== null) {
-      const keyValid = typeof ctx.merchantRepo.verifyApiKey === 'function'
-        && ctx.merchantRepo.verifyApiKey(merchant, String(presentedMerchantKey));
+      const keyValid =
+        typeof ctx.merchantRepo.verifyApiKey === "function" &&
+        ctx.merchantRepo.verifyApiKey(merchant, String(presentedMerchantKey));
       if (!keyValid) {
-        HttpServer.json(res, 401, { error: 'Invalid merchant key', code: 'INVALID_MERCHANT_KEY' });
+        HttpServer.json(res, 401, {
+          error: "Invalid merchant key",
+          code: "INVALID_MERCHANT_KEY",
+        });
         return;
       }
     } else if (!isAdminRequest(req)) {
       HttpServer.json(res, 401, {
-        error: 'A server-side merchant API key is required.',
-        code: 'MISSING_MERCHANT_KEY'
+        error: "A server-side merchant API key is required.",
+        code: "MISSING_MERCHANT_KEY",
       });
       return;
     }
 
     if (!body.orderId || !body.amount) {
-      HttpServer.json(res, 400, { error: 'Missing required fields: orderId and amount.' });
+      HttpServer.json(res, 400, {
+        error: "Missing required fields: orderId and amount.",
+      });
       return;
     }
 
@@ -99,18 +156,19 @@ export function registerPaymentRoutes(server, ctx) {
       HttpServer.json(res, 400, { error: err.message });
       return;
     }
-    const requestedCurrency = (body.currency || 'INR').toUpperCase();
+    const requestedCurrency = (body.currency || "INR").toUpperCase();
 
-    const isExplicitTestAutoActivate = body.autoActivate === true || body.autoActivate === 'true';
+    const isExplicitTestAutoActivate =
+      body.autoActivate === true || body.autoActivate === "true";
     if (isExplicitTestAutoActivate) {
       const autoActivateAllowed =
-        process.env.NODE_ENV === 'test' ||
-        process.env.ALLOW_TEST_AUTOACTIVATE === 'true' ||
+        process.env.NODE_ENV === "test" ||
+        process.env.ALLOW_TEST_AUTOACTIVATE === "true" ||
         isAdminRequest(req);
       if (!autoActivateAllowed) {
         HttpServer.json(res, 403, {
-          error: 'autoActivate is restricted to admin or test environments.',
-          code: 'AUTOACTIVATE_FORBIDDEN'
+          error: "autoActivate is restricted to admin or test environments.",
+          code: "AUTOACTIVATE_FORBIDDEN",
         });
         return;
       }
@@ -119,36 +177,57 @@ export function registerPaymentRoutes(server, ctx) {
     // returnUrl is echoed back to the customer's browser as a redirect target after
     // payment, so only absolute http(s) URLs are ever stored. This is the write-side
     // complement to the checkout page's sanitizeRedirectUrl.
-    if (body.returnUrl !== undefined && body.returnUrl !== null && body.returnUrl !== '') {
-      if (typeof body.returnUrl !== 'string') {
-        HttpServer.json(res, 400, { error: 'returnUrl must be a string.' });
+    if (
+      body.returnUrl !== undefined &&
+      body.returnUrl !== null &&
+      body.returnUrl !== ""
+    ) {
+      if (typeof body.returnUrl !== "string") {
+        HttpServer.json(res, 400, { error: "returnUrl must be a string." });
         return;
       }
       let parsedReturnUrl;
       try {
         parsedReturnUrl = new URL(body.returnUrl.trim());
       } catch {
-        HttpServer.json(res, 400, { error: 'returnUrl must be an absolute http(s) URL.' });
+        HttpServer.json(res, 400, {
+          error: "returnUrl must be an absolute http(s) URL.",
+        });
         return;
       }
-      if ((parsedReturnUrl.protocol !== 'http:' && parsedReturnUrl.protocol !== 'https:')
-        || parsedReturnUrl.username || parsedReturnUrl.password) {
-        HttpServer.json(res, 400, { error: 'returnUrl must use the http or https scheme.' });
+      if (
+        (parsedReturnUrl.protocol !== "http:" &&
+          parsedReturnUrl.protocol !== "https:") ||
+        parsedReturnUrl.username ||
+        parsedReturnUrl.password
+      ) {
+        HttpServer.json(res, 400, {
+          error: "returnUrl must use the http or https scheme.",
+        });
         return;
       }
-      const allowedReturnOrigins = String(process.env.YOUPI_ALLOWED_RETURN_ORIGINS || '')
-        .split(/[\s,]+/).map(value => value.trim()).filter(Boolean);
+      const allowedReturnOrigins = String(
+        process.env.YOUPI_ALLOWED_RETURN_ORIGINS || "",
+      )
+        .split(/[\s,]+/)
+        .map((value) => value.trim())
+        .filter(Boolean);
       if (!allowedReturnOrigins.includes(parsedReturnUrl.origin)) {
-        HttpServer.json(res, 400, { error: 'returnUrl origin is not allowlisted for this gateway.' });
+        HttpServer.json(res, 400, {
+          error: "returnUrl origin is not allowlisted for this gateway.",
+        });
         return;
       }
       body.returnUrl = parsedReturnUrl.href;
     }
 
-    const deviceId = body.deviceId || req.headers['x-device-id'] || null;
-    const deviceToken = body.deviceToken || req.headers['x-device-token'] || null;
-    const deviceSignature = body.deviceSignature || req.headers['x-device-signature'] || null;
-    const signaturePayload = body.signaturePayload || req.headers['x-device-payload'] || null;
+    const deviceId = body.deviceId || req.headers["x-device-id"] || null;
+    const deviceToken =
+      body.deviceToken || req.headers["x-device-token"] || null;
+    const deviceSignature =
+      body.deviceSignature || req.headers["x-device-signature"] || null;
+    const signaturePayload =
+      body.signaturePayload || req.headers["x-device-payload"] || null;
 
     if (deviceId) {
       const credCheck = verifyRegisteredDeviceCredentials({
@@ -156,12 +235,14 @@ export function registerPaymentRoutes(server, ctx) {
         deviceToken,
         deviceSignature,
         signaturePayload,
-        deviceRepo: ctx.deviceRepo
+        deviceRepo: ctx.deviceRepo,
       });
       if (!credCheck.valid) {
         HttpServer.json(res, 401, {
-          error: credCheck.error || 'DEVICE_CREDENTIALS_INVALID',
-          message: credCheck.message || 'A registered device and valid device credential are required.'
+          error: credCheck.error || "DEVICE_CREDENTIALS_INVALID",
+          message:
+            credCheck.message ||
+            "A registered device and valid device credential are required.",
         });
         return;
       }
@@ -169,31 +250,47 @@ export function registerPaymentRoutes(server, ctx) {
 
     // Check idempotency & active session state
     const requestedMethod = body.method || PaymentMethod.UPI;
-    if (![PaymentMethod.UPI, PaymentMethod.MANUAL_UPI, PaymentMethod.COD, PaymentMethod.CASH_COUNTER, PaymentMethod.CARD_COUNTER].includes(requestedMethod)) {
-      HttpServer.json(res, 400, { error: 'Unsupported payment method.' });
+    if (
+      ![
+        PaymentMethod.UPI,
+        PaymentMethod.MANUAL_UPI,
+        PaymentMethod.COD,
+        PaymentMethod.CASH_COUNTER,
+        PaymentMethod.CARD_COUNTER,
+      ].includes(requestedMethod)
+    ) {
+      HttpServer.json(res, 400, { error: "Unsupported payment method." });
       return;
     }
     const existing = ctx.sessionRepo.findByOrderId(merchant.id, body.orderId);
     if (existing) {
       if (existing.method !== requestedMethod) {
-        HttpServer.json(res, 409, { error: 'ORDER_PAYMENT_METHOD_MISMATCH', code: 'ORDER_PAYMENT_METHOD_MISMATCH' });
+        HttpServer.json(res, 409, {
+          error: "ORDER_PAYMENT_METHOD_MISMATCH",
+          code: "ORDER_PAYMENT_METHOD_MISMATCH",
+        });
         return;
       }
-      const existingCurrency = (existing.currency || 'INR').toUpperCase();
-      if (existing.amountPaise !== amountPaise || existingCurrency !== requestedCurrency) {
+      const existingCurrency = (existing.currency || "INR").toUpperCase();
+      if (
+        existing.amountPaise !== amountPaise ||
+        existingCurrency !== requestedCurrency
+      ) {
         HttpServer.json(res, 409, {
-          error: 'ORDER_AMOUNT_MISMATCH',
-          code: 'ORDER_AMOUNT_MISMATCH',
-          message: `Order ${body.orderId} already exists with a different amount or currency.`
+          error: "ORDER_AMOUNT_MISMATCH",
+          code: "ORDER_AMOUNT_MISMATCH",
+          message: `Order ${body.orderId} already exists with a different amount or currency.`,
         });
         return;
       }
 
       // If SUCCESS: order is already paid, return existing completed session
-      if (existing.status === PaymentStatus.SUCCESS
-        || existing.status === PaymentStatus.OBSERVED_SUCCESS
-        || existing.status === PaymentStatus.RECONCILED
-        || existing.status === PaymentStatus.MANUAL_REVIEW) {
+      if (
+        existing.status === PaymentStatus.SUCCESS ||
+        existing.status === PaymentStatus.OBSERVED_SUCCESS ||
+        existing.status === PaymentStatus.RECONCILED ||
+        existing.status === PaymentStatus.MANUAL_REVIEW
+      ) {
         HttpServer.json(res, 200, {
           paymentId: existing.id,
           orderId: existing.orderId,
@@ -201,17 +298,25 @@ export function registerPaymentRoutes(server, ctx) {
           amountPaise: existing.amountPaise.toString(),
           currency: existing.currency,
           status: existing.status,
-          checkoutUrl: `${resolveCheckoutBaseUrl(merchant)}/checkout/${existing.id}`
+          checkoutUrl: `${resolveCheckoutBaseUrl(merchant)}/checkout/${existing.id}`,
         });
         return;
       }
 
       // Check if existing session is stale
       const now = Date.now();
-      const isStale = (existing.status === PaymentStatus.ACTIVE && existing.expiresAt && existing.expiresAt.getTime() <= now) ||
-        (existing.status === PaymentStatus.PROCESSING && existing.processingExpiresAt && existing.processingExpiresAt.getTime() <= now);
+      const isStale =
+        (existing.status === PaymentStatus.ACTIVE &&
+          existing.expiresAt &&
+          existing.expiresAt.getTime() <= now) ||
+        (existing.status === PaymentStatus.PROCESSING &&
+          existing.processingExpiresAt &&
+          existing.processingExpiresAt.getTime() <= now);
       if (isStale) {
-        const terminalStatus = existing.status === PaymentStatus.PROCESSING ? PaymentStatus.FAILED : PaymentStatus.EXPIRED;
+        const terminalStatus =
+          existing.status === PaymentStatus.PROCESSING
+            ? PaymentStatus.FAILED
+            : PaymentStatus.EXPIRED;
         ctx.sessionRepo.transitionToTerminal(existing.id, terminalStatus);
         if (existing.receivingAccountId) {
           ctx.queueEngine.promoteNext(existing.receivingAccountId);
@@ -222,31 +327,66 @@ export function registerPaymentRoutes(server, ctx) {
             paymentId: existing.id,
             orderId: existing.orderId,
             merchantId: existing.merchantId,
-            amountPaise: existing.amountPaise
+            amountPaise: existing.amountPaise,
           });
         }
       }
 
       // If existing is non-terminal (ACTIVE, PROCESSING, QUEUED, INITIATED):
-      if ([PaymentStatus.ACTIVE, PaymentStatus.PROCESSING, PaymentStatus.QUEUED, PaymentStatus.INITIATED].includes(existing.status)) {
+      if (
+        [
+          PaymentStatus.ACTIVE,
+          PaymentStatus.PROCESSING,
+          PaymentStatus.QUEUED,
+          PaymentStatus.INITIATED,
+        ].includes(existing.status)
+      ) {
         // CASE 3: Active session bound to a device + missing or different device -> DUPLICATE_SESSION_DETECTED
-        if (existing.deviceId && (!deviceId || deviceId !== existing.deviceId)) {
+        if (
+          existing.deviceId &&
+          (!deviceId || deviceId !== existing.deviceId)
+        ) {
           HttpServer.json(res, 409, {
-            error: 'DUPLICATE_SESSION_DETECTED',
-            code: 'DEVICE_SESSION_MISMATCH',
+            error: "DUPLICATE_SESSION_DETECTED",
+            code: "DEVICE_SESSION_MISMATCH",
             session_id: existing.id,
             activeSession: {
               paymentId: existing.id,
               orderId: existing.orderId,
-              amount: toRupeesString(existing.amountPaise)
+              amount: toRupeesString(existing.amountPaise),
             },
-            action: 'END_SESSION_AND_CREATE_NEW',
-            message: 'This payment session was created on another device. For security reasons, this session cannot be continued from this device.'
+            action: "END_SESSION_AND_CREATE_NEW",
+            message:
+              "This payment session was created on another device. For security reasons, this session cannot be continued from this device.",
           });
           return;
         }
 
         // CASE 2: Active session + Same device -> CONTINUE ACTIVE SESSION
+        let existingSessionToken;
+        let replayCustomerId = existing.customerId;
+        if (!replayCustomerId && body.customer && ctx.customerRepo) {
+          const rawPhone =
+            body.customer.phoneNumber || body.customer.mobileNumber;
+          if (rawPhone && isValidMobile(rawPhone)) {
+            const normalizedPhone = normalizeMobile(rawPhone);
+            const foundCust = ctx.customerRepo.findByMobile(normalizedPhone);
+            if (foundCust) replayCustomerId = foundCust.id;
+          }
+        }
+        if (replayCustomerId && ctx.customerSessionRepo) {
+          try {
+            const tokenRec = ctx.customerSessionRepo.create({
+              customerId: replayCustomerId,
+            });
+            existingSessionToken = tokenRec?.token;
+          } catch {}
+        }
+        const existingBase = `${resolveCheckoutBaseUrl(merchant)}/checkout/${existing.id}`;
+        const existingCheckoutUrl = existingSessionToken
+          ? `${existingBase}?auth_token=${encodeURIComponent(existingSessionToken)}`
+          : existingBase;
+
         HttpServer.json(res, 200, {
           paymentId: existing.id,
           orderId: existing.orderId,
@@ -255,29 +395,41 @@ export function registerPaymentRoutes(server, ctx) {
           currency: existing.currency,
           status: existing.status,
           activeSessionDetected: true,
-          checkoutUrl: `${resolveCheckoutBaseUrl(merchant)}/checkout/${existing.id}`
+          ...(existingSessionToken
+            ? { customerSessionToken: existingSessionToken }
+            : {}),
+          checkoutUrl: existingCheckoutUrl,
         });
         return;
       }
 
       // CASE 4: Previous session is TERMINAL (FAILED, EXPIRED, CANCELLED) -> RETRY / NEW ATTEMPT!
       // Invariant: Keep merchant's exact orderId untouched so webhooks, reconciliations, and reporting align.
-      body.orderId = body.orderId.replace(/-R\d+$/, '');
+      body.orderId = body.orderId.replace(/-R\d+$/, "");
     }
 
-    const isCounterPayment = requestedMethod === PaymentMethod.CASH_COUNTER || requestedMethod === PaymentMethod.CARD_COUNTER;
+    const isCounterPayment =
+      requestedMethod === PaymentMethod.CASH_COUNTER ||
+      requestedMethod === PaymentMethod.CARD_COUNTER;
     const isCod = requestedMethod === PaymentMethod.COD;
     const isManualUpi = requestedMethod === PaymentMethod.MANUAL_UPI;
-    if (!isCounterPayment && !isCod && !isManualUpi && observerHealthEnforced()) {
-      const health = await checkUpiServerHealth(ctx, [], 'ONLINE', merchant.id);
+    if (
+      !isCounterPayment &&
+      !isCod &&
+      !isManualUpi &&
+      observerHealthEnforced()
+    ) {
+      const health = await checkUpiServerHealth(ctx, [], "ONLINE", merchant.id);
       if (!upiObserversAcceptingPayments(health)) {
         HttpServer.json(res, 503, {
-          error: 'UPI observers are offline. New payments are not accepted until the SMS observer heartbeat is fresh.',
-          code: 'OBSERVERS_UNHEALTHY',
+          error:
+            "UPI observers are offline. New payments are not accepted until the SMS observer heartbeat is fresh.",
+          code: "OBSERVERS_UNHEALTHY",
           smsHealthy: Boolean(health.smsHealthy),
           gmailHealthy: Boolean(health.gmailHealthy),
           retryAfterSeconds: 60,
-          recovery: 'Pair or reconnect the Android or Google Messages observer. A heartbeat within 5 minutes allows new UPI sessions. In-flight sessions are left to their existing timers.'
+          recovery:
+            "Pair or reconnect the Android or Google Messages observer. A heartbeat within 5 minutes allows new UPI sessions. In-flight sessions are left to their existing timers.",
         });
         return;
       }
@@ -287,9 +439,13 @@ export function registerPaymentRoutes(server, ctx) {
     let receivingAccountSnapshot = null;
     if (!isCounterPayment) {
       // Resolve active receiving account for UPI
-      const receivingAccount = ctx.accountRepo.findActiveForMerchant(merchant.id);
+      const receivingAccount = ctx.accountRepo.findActiveForMerchant(
+        merchant.id,
+      );
       if (!receivingAccount) {
-        HttpServer.json(res, 500, { error: 'No active UPI receiving account configured for merchant.' });
+        HttpServer.json(res, 500, {
+          error: "No active UPI receiving account configured for merchant.",
+        });
         return;
       }
       receivingAccountId = receivingAccount.id;
@@ -297,47 +453,110 @@ export function registerPaymentRoutes(server, ctx) {
         id: receivingAccount.id,
         upiId: receivingAccount.upiId,
         payeeName: receivingAccount.payeeName,
-        isMerchantEnabled: receivingAccount.isMerchantEnabled
+        isMerchantEnabled: receivingAccount.isMerchantEnabled,
       };
     }
 
-    // Resolve customer if provided (optional pre-existing customer)
+    // Resolve or auto-provision customer for pre-authenticated checkout
+    let customer = null;
     let customerId = body.customerId || null;
-    if (!customerId && (body.customer?.mobileNumber || body.customer?.phoneNumber || body.customer?.email) && ctx.customerRepo) {
-      const ident = body.customer.email || body.customer.mobileNumber || body.customer.phoneNumber;
-      const existingCust = ctx.customerRepo.findByIdentifier(ident);
-      if (existingCust) {
-        customerId = existingCust.id;
+
+    if (customerId && ctx.customerRepo) {
+      customer = ctx.customerRepo.findById(customerId);
+    }
+
+    if (!customer && body.customer && ctx.customerRepo) {
+      const rawPhone = body.customer.phoneNumber || body.customer.mobileNumber;
+      if (rawPhone && isValidMobile(rawPhone)) {
+        const normalizedPhone = normalizeMobile(rawPhone);
+        customer = ctx.customerRepo.findByMobile(normalizedPhone);
+        if (!customer && body.customer.email) {
+          customer = ctx.customerRepo.findByEmail(body.customer.email);
+        }
+
+        if (!customer) {
+          const rawName = body.customer.name || body.customer.fullName;
+          const customerName = (rawName && String(rawName).trim()) || "Member";
+          try {
+            customer = ctx.customerRepo.create({
+              name: customerName,
+              mobileNumber: normalizedPhone,
+              email: body.customer.email
+                ? normalizeEmail(body.customer.email)
+                : undefined,
+              isPhoneVerified: 1,
+            });
+          } catch {
+            customer = null;
+          }
+        }
+      } else if (
+        !rawPhone &&
+        body.customer.email &&
+        isValidEmail(body.customer.email)
+      ) {
+        customer = ctx.customerRepo.findByEmail(body.customer.email);
+      }
+      if (customer) {
+        customerId = customer.id;
       }
     }
 
     // Server-side Ban Enforcement (Section 3)
-    if (customerId && ctx.customerRepo && ctx.customerRepo.isBanned(customerId)) {
+    if (
+      customerId &&
+      ctx.customerRepo &&
+      ctx.customerRepo.isBanned(customerId)
+    ) {
       HttpServer.json(res, 403, {
-        status: 'BLOCKED',
-        error: 'ACCESS BLOCKED: Your account has been temporarily blocked because suspicious payment activity was detected. Our team will review the activity before access can be restored.',
-        message: 'Your account has been temporarily blocked because suspicious payment activity was detected. Our team will review the activity before access can be restored.',
-        isBanned: true
+        status: "BLOCKED",
+        error:
+          "ACCESS BLOCKED: Your account has been temporarily blocked because suspicious payment activity was detected. Our team will review the activity before access can be restored.",
+        message:
+          "Your account has been temporarily blocked because suspicious payment activity was detected. Our team will review the activity before access can be restored.",
+        isBanned: true,
       });
       return;
     }
 
+    // Generate pre-authenticated customer session token if customer is present
+    let customerSessionToken;
+    if (customer && ctx.customerSessionRepo) {
+      try {
+        const sessionRec = ctx.customerSessionRepo.create({
+          customerId: customer.id,
+        });
+        customerSessionToken = sessionRec?.token;
+      } catch (err) {
+        console.warn(
+          "[payments] Failed to create customer pre-auth session token:",
+          err.message,
+        );
+      }
+    }
+
     // Check if customer already has an active payment session on another device (CASE 3)
     if (customerId && ctx.sessionRepo) {
-      const activeForCust = ctx.sessionRepo.findActiveForCustomer ? ctx.sessionRepo.findActiveForCustomer(customerId) : null;
+      const activeForCust = ctx.sessionRepo.findActiveForCustomer
+        ? ctx.sessionRepo.findActiveForCustomer(customerId)
+        : null;
       if (activeForCust) {
-        if (activeForCust.deviceId && (!deviceId || deviceId !== activeForCust.deviceId)) {
+        if (
+          activeForCust.deviceId &&
+          (!deviceId || deviceId !== activeForCust.deviceId)
+        ) {
           HttpServer.json(res, 409, {
-            error: 'DUPLICATE_SESSION_DETECTED',
-            code: 'DEVICE_SESSION_MISMATCH',
+            error: "DUPLICATE_SESSION_DETECTED",
+            code: "DEVICE_SESSION_MISMATCH",
             session_id: activeForCust.id,
             activeSession: {
               paymentId: activeForCust.id,
               orderId: activeForCust.orderId,
-              amount: toRupeesString(activeForCust.amountPaise)
+              amount: toRupeesString(activeForCust.amountPaise),
             },
-            action: 'END_SESSION_AND_CREATE_NEW',
-            message: 'This customer already has an active payment session on another device. For security reasons, this session cannot be continued from this device.'
+            action: "END_SESSION_AND_CREATE_NEW",
+            message:
+              "This customer already has an active payment session on another device. For security reasons, this session cannot be continued from this device.",
           });
           return;
         }
@@ -350,50 +569,69 @@ export function registerPaymentRoutes(server, ctx) {
     // Only physical counter payments (CASH_COUNTER, CARD_COUNTER) start as ACTIVE (they do not use UPI slots).
     // The only exception for UPI auto-activation is explicit developer test suite flag: body.autoActivate === true.
     const shouldActivateNow = isCounterPayment || isExplicitTestAutoActivate;
-    const initialStatus = isCounterPayment ? PaymentStatus.ACTIVE : PaymentStatus.INITIATED;
+    const initialStatus = isCounterPayment
+      ? PaymentStatus.ACTIVE
+      : PaymentStatus.INITIATED;
 
     const sessionMetadata = {
       ...(body.metadata || {}),
-      ...(receivingAccountSnapshot ? { receivingAccountSnapshot } : {})
+      ...(receivingAccountSnapshot ? { receivingAccountSnapshot } : {}),
     };
 
     if (deviceId && customerId && ctx.deviceRepo) {
-      try { ctx.deviceRepo.associateCustomer(deviceId, customerId); } catch {}
+      try {
+        ctx.deviceRepo.associateCustomer(deviceId, customerId);
+      } catch {}
     }
 
-    // Create session in DB
+    // Create session in DB (bind customer identity immediately when pre-authenticated)
     const session = ctx.sessionRepo.create({
       merchantId: merchant.id,
-      customerId,
+      customerId: customerId,
       receivingAccountId,
       orderId: body.orderId,
       amountPaise,
-      currency: body.currency || 'INR',
+      currency: body.currency || "INR",
       method: requestedMethod,
       status: initialStatus,
       returnUrl: body.returnUrl || null,
       idempotencyKey: idempotencyKey || null,
       deviceId,
-      metadata: sessionMetadata
+      metadata: sessionMetadata,
     });
 
     // Enqueue or Activate slot via QueueEngine ONLY when counter payment or explicitly requested by automated test runner
-    let queueResult = { status: initialStatus, queuePosition: 0, expiresAt: null };
+    let queueResult = {
+      status: initialStatus,
+      queuePosition: 0,
+      expiresAt: null,
+    };
     if (!isCounterPayment && receivingAccountId && shouldActivateNow) {
-      const activeDurationMs = ctx.timingEngine ? ctx.timingEngine.activeDurationMs : 300000;
-      queueResult = ctx.queueEngine.enqueueOrActivate(session.id, receivingAccountId, activeDurationMs);
+      const activeDurationMs = ctx.timingEngine
+        ? ctx.timingEngine.activeDurationMs
+        : 300000;
+      queueResult = ctx.queueEngine.enqueueOrActivate(
+        session.id,
+        receivingAccountId,
+        activeDurationMs,
+      );
 
       // If activated immediately, start Timer 1 (5 minutes)
       if (queueResult.expiresAt) {
         ctx.timingEngine.startActiveTimer(session.id, queueResult.expiresAt);
       }
-      server.broadcastSse('admin_counter_events', 'status_change', {
+      server.broadcastSse("admin_counter_events", "status_change", {
         status: queueResult.status,
         sessionId: session.id,
         orderId: session.orderId,
-        amountPaise: session.amountPaise ? session.amountPaise.toString() : '0'
+        amountPaise: session.amountPaise ? session.amountPaise.toString() : "0",
       });
     }
+
+    const checkoutBase = `${resolveCheckoutBaseUrl(merchant)}/checkout/${session.id}`;
+    const checkoutUrl = customerSessionToken
+      ? `${checkoutBase}?auth_token=${encodeURIComponent(customerSessionToken)}`
+      : checkoutBase;
 
     HttpServer.json(res, 201, {
       paymentId: session.id,
@@ -403,15 +641,18 @@ export function registerPaymentRoutes(server, ctx) {
       currency: session.currency,
       status: queueResult.status,
       queuePosition: queueResult.queuePosition,
-      checkoutUrl: `${resolveCheckoutBaseUrl(merchant)}/checkout/${session.id}`
+      ...(customerSessionToken ? { customerSessionToken } : {}),
+      checkoutUrl,
     });
   });
 
   // GET /api/v1/payments/:id
-  server.get('/api/v1/payments/:id', async (req, res, params) => {
+  server.get("/api/v1/payments/:id", async (req, res, params) => {
     const session = ctx.sessionRepo.findById(params.id);
     if (!session) {
-      HttpServer.json(res, 404, { error: `Payment session not found: ${params.id}` });
+      HttpServer.json(res, 404, {
+        error: `Payment session not found: ${params.id}`,
+      });
       return;
     }
 
@@ -430,7 +671,9 @@ export function registerPaymentRoutes(server, ctx) {
       status: publicStatus,
       settlementState: settlementStateFor(publicStatus),
       method: session.method,
-      completedAt: session.completedAt ? session.completedAt.toISOString() : null
+      completedAt: session.completedAt
+        ? session.completedAt.toISOString()
+        : null,
     };
 
     if (!isPaymentOwner(req, session, ctx)) {
@@ -443,17 +686,19 @@ export function registerPaymentRoutes(server, ctx) {
       internalStatus: session.status,
       verificationLevel: session.verificationLevel || 0,
       verificationSources: session.verificationSources || [],
-      verificationTag: session.verificationTag || 'UNVERIFIED',
+      verificationTag: session.verificationTag || "UNVERIFIED",
       returnUrl: session.returnUrl,
-      metadata: session.metadata
+      metadata: session.metadata,
     });
   });
 
   // GET /api/v1/payments/:id/cod (Developer COD Info Endpoint)
-  server.get('/api/v1/payments/:id/cod', async (req, res, params) => {
+  server.get("/api/v1/payments/:id/cod", async (req, res, params) => {
     const session = ctx.sessionRepo.findById(params.id);
     if (!session) {
-      HttpServer.json(res, 404, { error: `Payment session not found: ${params.id}` });
+      HttpServer.json(res, 404, {
+        error: `Payment session not found: ${params.id}`,
+      });
       return;
     }
 
@@ -468,8 +713,16 @@ export function registerPaymentRoutes(server, ctx) {
         customer = {
           id: c.id,
           name: c.name,
-          email: isOwner ? c.email : (c.email ? `${c.email.slice(0, 2)}***@${c.email.split('@')[1] || '***'}` : null),
-          mobileNumber: isOwner ? c.mobileNumber : (c.mobileNumber ? `${c.mobileNumber.slice(0, 2)}******${c.mobileNumber.slice(-2)}` : null)
+          email: isOwner
+            ? c.email
+            : c.email
+              ? `${c.email.slice(0, 2)}***@${c.email.split("@")[1] || "***"}`
+              : null,
+          mobileNumber: isOwner
+            ? c.mobileNumber
+            : c.mobileNumber
+              ? `${c.mobileNumber.slice(0, 2)}******${c.mobileNumber.slice(-2)}`
+              : null,
         };
       }
     }
@@ -483,31 +736,42 @@ export function registerPaymentRoutes(server, ctx) {
       method: session.method,
       status: session.status,
       verificationTag: session.verificationTag,
-      isCod: session.method === 'COD',
+      isCod: session.method === "COD",
       customer: owner ? customer : null,
-      placedAt: session.completedAt ? (session.completedAt.toISOString ? session.completedAt.toISOString() : session.completedAt) : (session.createdAt?.toISOString ? session.createdAt.toISOString() : session.createdAt),
-      ...(owner ? { metadata: session.metadata } : {})
+      placedAt: session.completedAt
+        ? session.completedAt.toISOString
+          ? session.completedAt.toISOString()
+          : session.completedAt
+        : session.createdAt?.toISOString
+          ? session.createdAt.toISOString()
+          : session.createdAt,
+      ...(owner ? { metadata: session.metadata } : {}),
     });
   });
 
   // GET /api/v1/orders/:orderId/cod (Developer COD Info by Merchant Order ID)
-  server.get('/api/v1/orders/:orderId/cod', async (req, res, params) => {
-    const merchantId = req.headers['x-merchant-id'] || req.query.merchantId;
+  server.get("/api/v1/orders/:orderId/cod", async (req, res, params) => {
+    const merchantId = req.headers["x-merchant-id"] || req.query.merchantId;
     let merchant;
     if (merchantId) {
       merchant = ctx.merchantRepo.findById(merchantId);
     } else {
-      merchant = ctx.merchantRepo.getDefault ? ctx.merchantRepo.getDefault() : (ctx.merchantRepo.findById('00000000-0000-0000-0000-000000000001') || ctx.merchantRepo.findAll()[0]);
+      merchant = ctx.merchantRepo.getDefault
+        ? ctx.merchantRepo.getDefault()
+        : ctx.merchantRepo.findById("e0f1926c-fbd0-4992-a9ea-c1aa22ae8485") ||
+          ctx.merchantRepo.findAll()[0];
     }
 
     if (!merchant) {
-      HttpServer.json(res, 404, { error: 'Merchant not found.' });
+      HttpServer.json(res, 404, { error: "Merchant not found." });
       return;
     }
 
     const session = ctx.sessionRepo.findByOrderId(merchant.id, params.orderId);
     if (!session) {
-      HttpServer.json(res, 404, { error: `Order not found: ${params.orderId}` });
+      HttpServer.json(res, 404, {
+        error: `Order not found: ${params.orderId}`,
+      });
       return;
     }
 
@@ -522,8 +786,16 @@ export function registerPaymentRoutes(server, ctx) {
         customer = {
           id: c.id,
           name: c.name,
-          email: isOwner ? c.email : (c.email ? `${c.email.slice(0, 2)}***@${c.email.split('@')[1] || '***'}` : null),
-          mobileNumber: isOwner ? c.mobileNumber : (c.mobileNumber ? `${c.mobileNumber.slice(0, 2)}******${c.mobileNumber.slice(-2)}` : null)
+          email: isOwner
+            ? c.email
+            : c.email
+              ? `${c.email.slice(0, 2)}***@${c.email.split("@")[1] || "***"}`
+              : null,
+          mobileNumber: isOwner
+            ? c.mobileNumber
+            : c.mobileNumber
+              ? `${c.mobileNumber.slice(0, 2)}******${c.mobileNumber.slice(-2)}`
+              : null,
         };
       }
     }
@@ -537,10 +809,16 @@ export function registerPaymentRoutes(server, ctx) {
       method: session.method,
       status: session.status,
       verificationTag: session.verificationTag,
-      isCod: session.method === 'COD',
+      isCod: session.method === "COD",
       customer: owner ? customer : null,
-      placedAt: session.completedAt ? (session.completedAt.toISOString ? session.completedAt.toISOString() : session.completedAt) : (session.createdAt?.toISOString ? session.createdAt.toISOString() : session.createdAt),
-      ...(owner ? { metadata: session.metadata } : {})
+      placedAt: session.completedAt
+        ? session.completedAt.toISOString
+          ? session.completedAt.toISOString()
+          : session.completedAt
+        : session.createdAt?.toISOString
+          ? session.createdAt.toISOString()
+          : session.createdAt,
+      ...(owner ? { metadata: session.metadata } : {}),
     });
   });
 }

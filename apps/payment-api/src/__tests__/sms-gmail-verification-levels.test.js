@@ -1,12 +1,12 @@
-import { test, describe, before, after } from 'node:test';
-import assert from 'node:assert/strict';
-import crypto from 'node:crypto';
-import { Database } from '@youpi/db';
-import { PaymentStatus, PaymentMethod } from '@youpi/common';
-import { startServer } from '../index.js';
-import { authFetch } from '../../../../scripts/test-support.js';
+import { test, describe, before, after } from "node:test";
+import assert from "node:assert/strict";
+import crypto from "node:crypto";
+import { Database } from "@youpi/db";
+import { PaymentStatus, PaymentMethod } from "@youpi/common";
+import { startServer } from "../index.js";
+import { authFetch } from "../../../../scripts/test-support.js";
 
-describe('2-Level Verification (SMS Gateway + Gmail) & Queue Management Tests', () => {
+describe("2-Level Verification (SMS Gateway + Gmail) & Queue Management Tests", () => {
   let apiInstance;
   let testDb;
   let baseUrl;
@@ -22,38 +22,47 @@ describe('2-Level Verification (SMS Gateway + Gmail) & Queue Management Tests', 
     testDb.close();
   });
 
-  test('POST /api/v1/admin/queue/clear expires all waiting UPI queue sessions', async () => {
+  test("POST /api/v1/admin/queue/clear expires all waiting UPI queue sessions", async () => {
     const sessionRepo = apiInstance.app.context.sessionRepo;
-    const receivingAccountId = '00000000-0000-0000-0000-000000000002';
-    const merchantId = '00000000-0000-0000-0000-000000000001';
+    const receivingAccountId = "00000000-0000-0000-0000-000000000002";
+    const merchantId = "e0f1926c-fbd0-4992-a9ea-c1aa22ae8485";
 
     // Create 1 active and 3 queued sessions
     const sActive = sessionRepo.create({
       merchantId,
       receivingAccountId,
-      orderId: 'ORD-ACTIVE-1',
-      amountPaise: 10000n
+      orderId: "ORD-ACTIVE-1",
+      amountPaise: 10000n,
     });
-    apiInstance.app.context.queueEngine.enqueueOrActivate(sActive.id, receivingAccountId);
+    apiInstance.app.context.queueEngine.enqueueOrActivate(
+      sActive.id,
+      receivingAccountId,
+    );
 
     const sQ1 = sessionRepo.create({
       merchantId,
       receivingAccountId,
-      orderId: 'ORD-Q-1',
-      amountPaise: 20000n
+      orderId: "ORD-Q-1",
+      amountPaise: 20000n,
     });
-    apiInstance.app.context.queueEngine.enqueueOrActivate(sQ1.id, receivingAccountId);
+    apiInstance.app.context.queueEngine.enqueueOrActivate(
+      sQ1.id,
+      receivingAccountId,
+    );
 
     const sQ2 = sessionRepo.create({
       merchantId,
       receivingAccountId,
-      orderId: 'ORD-Q-2',
-      amountPaise: 30000n
+      orderId: "ORD-Q-2",
+      amountPaise: 30000n,
     });
-    apiInstance.app.context.queueEngine.enqueueOrActivate(sQ2.id, receivingAccountId);
+    apiInstance.app.context.queueEngine.enqueueOrActivate(
+      sQ2.id,
+      receivingAccountId,
+    );
 
     const clearRes = await authFetch(`${baseUrl}/api/v1/admin/queue/clear`, {
-      method: 'POST'
+      method: "POST",
     });
     assert.equal(clearRes.status, 200);
     const clearData = await clearRes.json();
@@ -70,16 +79,16 @@ describe('2-Level Verification (SMS Gateway + Gmail) & Queue Management Tests', 
     sessionRepo.transitionToTerminal(sActive.id, PaymentStatus.SUCCESS);
   });
 
-  test('Detects active session conflict when customer already has an active session', async () => {
+  test("Detects active session conflict when customer already has an active session", async () => {
     const sessionRepo = apiInstance.app.context.sessionRepo;
     const customerRepo = apiInstance.app.context.customerRepo;
-    const receivingAccountId = '00000000-0000-0000-0000-000000000002';
-    const merchantId = '00000000-0000-0000-0000-000000000001';
+    const receivingAccountId = "00000000-0000-0000-0000-000000000002";
+    const merchantId = "e0f1926c-fbd0-4992-a9ea-c1aa22ae8485";
 
     // Create a customer
     const customer = customerRepo.create({
-      phoneNumber: '9876543210',
-      fullName: 'Conflict Test User'
+      phoneNumber: "9876543210",
+      fullName: "Conflict Test User",
     });
 
     // Session 1: bound to customer and ACTIVE
@@ -87,22 +96,27 @@ describe('2-Level Verification (SMS Gateway + Gmail) & Queue Management Tests', 
       merchantId,
       receivingAccountId,
       customerId: customer.id,
-      orderId: 'ORD-FIRST-ACTIVE',
-      amountPaise: 50000n
+      orderId: "ORD-FIRST-ACTIVE",
+      amountPaise: 50000n,
     });
-    apiInstance.app.context.queueEngine.enqueueOrActivate(session1.id, receivingAccountId);
+    apiInstance.app.context.queueEngine.enqueueOrActivate(
+      session1.id,
+      receivingAccountId,
+    );
 
     // Session 2: new session created for the same customer
     const session2 = sessionRepo.create({
       merchantId,
       receivingAccountId,
       customerId: customer.id,
-      orderId: 'ORD-SECOND-ATTEMPT',
-      amountPaise: 75000n
+      orderId: "ORD-SECOND-ATTEMPT",
+      amountPaise: 75000n,
     });
 
     // Check state of session 2 via API
-    const res = await authFetch(`${baseUrl}/api/v1/checkout/${session2.id}/state`);
+    const res = await authFetch(
+      `${baseUrl}/api/v1/checkout/${session2.id}/state`,
+    );
     assert.equal(res.status, 200);
     const state = await res.json();
 
@@ -111,9 +125,12 @@ describe('2-Level Verification (SMS Gateway + Gmail) & Queue Management Tests', 
     assert.equal(state.conflictingSession.id, session1.id);
 
     // Retrying new payment clears old conflict
-    const retryRes = await authFetch(`${baseUrl}/api/v1/checkout/${session2.id}/retry-new-payment`, {
-      method: 'POST'
-    });
+    const retryRes = await authFetch(
+      `${baseUrl}/api/v1/checkout/${session2.id}/retry-new-payment`,
+      {
+        method: "POST",
+      },
+    );
     assert.equal(retryRes.status, 200);
 
     const oldSession = sessionRepo.findById(session1.id);
@@ -123,21 +140,23 @@ describe('2-Level Verification (SMS Gateway + Gmail) & Queue Management Tests', 
     sessionRepo.transitionToTerminal(session2.id, PaymentStatus.CANCELLED);
   });
 
-  test('Android SMS Gateway pairs via QR, sends HMAC-signed bank SMS and completes payment', async () => {
+  test("Android SMS Gateway pairs via QR, sends HMAC-signed bank SMS and completes payment", async () => {
     // 1. Get pairing QR from admin
-    const qrRes = await authFetch(`${baseUrl}/api/v1/admin/sms-gateway/pair-qr`);
+    const qrRes = await authFetch(
+      `${baseUrl}/api/v1/admin/sms-gateway/pair-qr`,
+    );
     assert.equal(qrRes.status, 200);
     const qrData = await qrRes.json();
     assert.ok(qrData.enrollmentToken);
 
     // 2. Mobile app pairs
     const pairRes = await authFetch(`${baseUrl}/api/v1/observers/sms/pair`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         enrollmentToken: qrData.enrollmentToken,
-        deviceName: 'Samsung Galaxy S24 Bank Gateway'
-      })
+        deviceName: "Samsung Galaxy S24 Bank Gateway",
+      }),
     });
     assert.equal(pairRes.status, 200);
     const pairData = await pairRes.json();
@@ -147,37 +166,46 @@ describe('2-Level Verification (SMS Gateway + Gmail) & Queue Management Tests', 
 
     // 3. Create active payment session for ₹450
     const sessionRepo = apiInstance.app.context.sessionRepo;
-    const receivingAccountId = '00000000-0000-0000-0000-000000000002';
+    const receivingAccountId = "00000000-0000-0000-0000-000000000002";
     const s450 = sessionRepo.create({
-      merchantId: '00000000-0000-0000-0000-000000000001',
+      merchantId: "e0f1926c-fbd0-4992-a9ea-c1aa22ae8485",
       receivingAccountId,
-      orderId: 'ORD-SMS-450',
-      amountPaise: 45000n
+      orderId: "ORD-SMS-450",
+      amountPaise: 45000n,
     });
-    testDb.execute("UPDATE payment_receiving_accounts SET is_slot_busy = 0, current_active_session_id = NULL WHERE id = ?", [receivingAccountId]);
-    apiInstance.app.context.queueEngine.enqueueOrActivate(s450.id, receivingAccountId);
+    testDb.execute(
+      "UPDATE payment_receiving_accounts SET is_slot_busy = 0, current_active_session_id = NULL WHERE id = ?",
+      [receivingAccountId],
+    );
+    apiInstance.app.context.queueEngine.enqueueOrActivate(
+      s450.id,
+      receivingAccountId,
+    );
 
     // 4. Mobile app captures bank SMS and dispatches to /api/v1/observers/sms
     const timestamp = Date.now();
     const smsPayload = {
       deviceId: pairData.deviceId,
-      sender: 'HDFCBK',
-      body: 'Dear Customer, A/C *4321 credited by Rs 450.00 on 30-Sep-26 by UPI/9876543210/REF99887766 - HDFC Bank',
-      timestamp
+      sender: "HDFCBK",
+      body: "Dear Customer, A/C *4321 credited by Rs 450.00 on 30-Sep-26 by UPI/9876543210/REF99887766 - HDFC Bank",
+      timestamp,
     };
     const bodyStr = JSON.stringify(smsPayload);
     const sigPayload = `${bodyStr}:${timestamp}`;
-    const signature = crypto.createHmac('sha256', pairData.signingKey).update(sigPayload).digest('hex');
+    const signature = crypto
+      .createHmac("sha256", pairData.signingKey)
+      .update(sigPayload)
+      .digest("hex");
 
     const smsRes = await authFetch(`${baseUrl}/api/v1/observers/sms`, {
-      method: 'POST',
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
-        'X-Device-Id': pairData.deviceId,
-        'X-Timestamp': timestamp.toString(),
-        'X-Signature': signature
+        "Content-Type": "application/json",
+        "X-Device-Id": pairData.deviceId,
+        "X-Timestamp": timestamp.toString(),
+        "X-Signature": signature,
       },
-      body: bodyStr
+      body: bodyStr,
     });
 
     assert.equal(smsRes.status, 200);
@@ -191,23 +219,26 @@ describe('2-Level Verification (SMS Gateway + Gmail) & Queue Management Tests', 
 
     // 2nd hit arrives from Gmail poller within 5s grace window -> upgrades to Level 2 Dual Verification
     const gmailRes = await authFetch(`${baseUrl}/api/v1/pollers/events`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        source: 'GMAIL',
+        source: "GMAIL",
         receivingAccountId,
-        amountPaise: '45000',
-        amount: '450.00',
-        rawText: 'Dear Customer, INR 450.00 credited to A/C *4321. Ref: REF99887766 - HDFC Bank',
-        observedAt: new Date().toISOString()
-      })
+        amountPaise: "45000",
+        amount: "450.00",
+        rawText:
+          "Dear Customer, INR 450.00 credited to A/C *4321. Ref: REF99887766 - HDFC Bank",
+        observedAt: new Date().toISOString(),
+      }),
     });
     assert.equal(gmailRes.status, 200);
     const gmailResult = await gmailRes.json();
     assert.equal(gmailResult.accepted, true);
     assert.equal(gmailResult.attribution.attributed, true);
     assert.equal(gmailResult.attribution.verificationLevel, 2);
-    assert.ok(gmailResult.attribution.verificationTag.includes('Dual Verification'));
+    assert.ok(
+      gmailResult.attribution.verificationTag.includes("Dual Verification"),
+    );
 
     // Verify session in DB is now SUCCESS and Level 2
     const sUpdated = sessionRepo.findById(s450.id);
@@ -215,41 +246,52 @@ describe('2-Level Verification (SMS Gateway + Gmail) & Queue Management Tests', 
     assert.equal(sUpdated.verificationLevel, 2);
   });
 
-  test('Gmail credentials can be saved and connection tested via Admin API', async () => {
-    const saveRes = await authFetch(`${baseUrl}/api/v1/admin/gmail/credentials`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        clientId: 'test-client-id.apps.googleusercontent.com',
-        clientSecret: 'test-secret',
-        refreshToken: 'mock_test_refresh_token_string_98765'
-      })
-    });
+  test("Gmail credentials can be saved and connection tested via Admin API", async () => {
+    const saveRes = await authFetch(
+      `${baseUrl}/api/v1/admin/gmail/credentials`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          clientId: "test-client-id.apps.googleusercontent.com",
+          clientSecret: "test-secret",
+          refreshToken: "mock_test_refresh_token_string_98765",
+        }),
+      },
+    );
     assert.equal(saveRes.status, 200);
     const saveData = await saveRes.json();
     assert.equal(saveData.success, true);
-    assert.equal(saveData.status, 'CONFIGURED');
+    assert.equal(saveData.status, "CONFIGURED");
 
     const getRes = await authFetch(`${baseUrl}/api/v1/admin/gmail/credentials`);
     assert.equal(getRes.status, 200);
     const getData = await getRes.json();
-    assert.equal(getData.gmailConfig.clientId, 'test-client-id.apps.googleusercontent.com');
+    assert.equal(
+      getData.gmailConfig.clientId,
+      "test-client-id.apps.googleusercontent.com",
+    );
 
     // Test connection endpoint
     const testRes = await authFetch(`${baseUrl}/api/v1/admin/gmail/test`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        refreshToken: 'mock_token'
-      })
+        refreshToken: "mock_token",
+      }),
     });
     assert.equal(testRes.status, 200);
   });
 
-  test('Downloads standalone Android APK binary from Payment API', async () => {
-    const res = await authFetch(`${baseUrl}/api/v1/admin/sms-gateway/download-apk`);
+  test("Downloads standalone Android APK binary from Payment API", async () => {
+    const res = await authFetch(
+      `${baseUrl}/api/v1/admin/sms-gateway/download-apk`,
+    );
     assert.equal(res.status, 200);
-    assert.equal(res.headers.get('content-type'), 'application/vnd.android.package-archive');
+    assert.equal(
+      res.headers.get("content-type"),
+      "application/vnd.android.package-archive",
+    );
     const buf = await res.arrayBuffer();
     assert.ok(buf.byteLength > 0);
   });

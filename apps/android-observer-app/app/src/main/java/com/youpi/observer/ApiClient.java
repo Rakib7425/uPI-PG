@@ -55,7 +55,7 @@ public class ApiClient {
     }
 
     public boolean pair(String baseUrl, String enrollmentToken, String deviceName) {
-        return pair(baseUrl, enrollmentToken, deviceName, "00000000-0000-0000-0000-000000000001", "v1", 0);
+        return pair(baseUrl, enrollmentToken, deviceName, "e0f1926c-fbd0-4992-a9ea-c1aa22ae8485", "v1", 0);
     }
 
     public boolean pair(String baseUrl, String enrollmentToken, String deviceName, String merchantId, String version, long expiresAt) {
@@ -66,7 +66,7 @@ public class ApiClient {
             JSONObject body = new JSONObject();
             body.put("version", version != null ? version : "v1");
             body.put("enrollmentToken", enrollmentToken);
-            body.put("merchantId", merchantId != null ? merchantId : "00000000-0000-0000-0000-000000000001");
+            body.put("merchantId", merchantId != null ? merchantId : "e0f1926c-fbd0-4992-a9ea-c1aa22ae8485");
             if (expiresAt > 0) body.put("expiresAt", expiresAt);
             body.put("deviceName", deviceName != null && !deviceName.isEmpty() ? deviceName : Build.MODEL);
             body.put("deviceModel", Build.MANUFACTURER + " " + Build.MODEL);

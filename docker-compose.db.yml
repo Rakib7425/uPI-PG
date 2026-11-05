@@ -1,0 +1,19 @@
+services:
+  payment-gateway-db:
+    container_name: rdtccs_pg_db
+    image: postgres:17.11
+    volumes:
+      - ./data/pgsql:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    environment:
+      - POSTGRES_PASSWORD=rdtccs_pg_db_password
+      - POSTGRES_USER=rdtccs_pg_db_user
+      - POSTGRES_DB=rdtccs_pg_db
+  adminer:
+    container_name: rdtccs_pg_db_adminer
+    image: adminer:latest
+    ports:
+      - "8080:8080"
+    depends_on:
+      - payment-gateway-db

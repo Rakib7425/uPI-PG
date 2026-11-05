@@ -29,7 +29,7 @@ paths:
           description: Public publishable merchant identifier. If omitted, uses the default configured merchant.
           schema:
             type: string
-            example: "00000000-0000-0000-0000-000000000001"
+            example: "e0f1926c-fbd0-4992-a9ea-c1aa22ae8485"
         - name: Idempotency-Key
           in: header
           required: false
@@ -42,38 +42,38 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CreatePaymentRequest'
+              $ref: "#/components/schemas/CreatePaymentRequest"
       responses:
-        '201':
+        "201":
           description: Payment session successfully created.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/CreatePaymentResponse'
-        '200':
+                $ref: "#/components/schemas/CreatePaymentResponse"
+        "200":
           description: Existing session returned for idempotent request or ongoing active session.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/CreatePaymentResponse'
-        '400':
+                $ref: "#/components/schemas/CreatePaymentResponse"
+        "400":
           description: Missing or invalid request parameters.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '403':
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
           description: Access blocked due to security/fraud flagging on customer account.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '409':
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
           description: Duplicate active payment session detected on another device.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/DuplicateSessionResponse'
+                $ref: "#/components/schemas/DuplicateSessionResponse"
 
   /api/v1/payments/{id}:
     get:
@@ -90,18 +90,18 @@ paths:
             type: string
             example: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
       responses:
-        '200':
+        "200":
           description: Payment details and outcome.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PaymentDetailsResponse'
-        '404':
+                $ref: "#/components/schemas/PaymentDetailsResponse"
+        "404":
           description: Payment session not found.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: "#/components/schemas/ErrorResponse"
 
   /api/v1/checkout/{id}/cancel:
     post:
@@ -117,7 +117,7 @@ paths:
           schema:
             type: string
       responses:
-        '200':
+        "200":
           description: Session transitioned to CANCELLED.
           content:
             application/json:
@@ -130,12 +130,12 @@ paths:
                   status:
                     type: string
                     example: "CANCELLED"
-        '404':
+        "404":
           description: Session not found.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: "#/components/schemas/ErrorResponse"
 
 components:
   schemas:
@@ -204,7 +204,17 @@ components:
           example: "INR"
         status:
           type: string
-          enum: [INITIATED, ACTIVE, QUEUED, PROCESSING, SUCCESS, FAILED, EXPIRED, CANCELLED]
+          enum:
+            [
+              INITIATED,
+              ACTIVE,
+              QUEUED,
+              PROCESSING,
+              SUCCESS,
+              FAILED,
+              EXPIRED,
+              CANCELLED,
+            ]
           example: "INITIATED"
         queuePosition:
           type: integer
@@ -233,7 +243,17 @@ components:
           example: "INR"
         status:
           type: string
-          enum: [INITIATED, ACTIVE, QUEUED, PROCESSING, SUCCESS, FAILED, EXPIRED, CANCELLED]
+          enum:
+            [
+              INITIATED,
+              ACTIVE,
+              QUEUED,
+              PROCESSING,
+              SUCCESS,
+              FAILED,
+              EXPIRED,
+              CANCELLED,
+            ]
           example: "SUCCESS"
         method:
           type: string

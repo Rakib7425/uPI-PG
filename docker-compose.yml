@@ -1,13 +1,3 @@
-# =============================================================================
-# YOUPI PG V2 — Docker Compose Configuration
-#
-# Usage:
-#   docker compose up -d       # Start all services in background
-#   docker compose logs -f     # Follow combined service logs
-#   docker compose down        # Stop services
-#   docker compose down -v     # Stop and remove persistent SQLite volume
-# =============================================================================
-
 services:
   gateway:
     build:
@@ -19,14 +9,14 @@ services:
     restart: unless-stopped
     env_file:
       - path: .env
-        required: false
+        required: true
     environment:
       NODE_ENV: ${NODE_ENV:-production}
       YOUPI_MODE: ${YOUPI_MODE:-localhost}
-      # The container ships without a Cloudflare domain, so localhost mode is requested
-      # explicitly rather than being an implicit fallback. scripts/start.js still refuses to
-      # run in production mode without a domain.
+
       YOUPI_ALLOW_LOCALHOST_MODE: ${YOUPI_ALLOW_LOCALHOST_MODE:-true}
+      YOUPI_ALLOW_PRIVATE_WEBHOOKS: ${YOUPI_ALLOW_PRIVATE_WEBHOOKS:-true}
+      YOUPI_ENFORCE_OBSERVER_HEALTH: ${YOUPI_ENFORCE_OBSERVER_HEALTH:-false}
       YOUPI_BIND_HOST: "0.0.0.0"
       BASE_PAYMENT_API_URL: http://localhost:6100
       BASE_CHECKOUT_URL: http://localhost:7000
@@ -41,18 +31,18 @@ services:
       COIN_WALLET_STORE_PORT: 5000
       CONTROL_CENTER_PORT: 8090
     ports:
-      # Public surfaces. These are the ports meant to be reachable (and are the ones the
+      # Public surfaces.
       # Cloudflare Tunnel targets).
       - "6100:6100"   # Payment Core REST API
       - "7000:7000"   # Checkout Portal
       - "5000:5000"   # Coin Wallet Demo Store
-      # Operator surfaces. Bound to loopback on the host: the Merchant Admin holds admin
-      # credentials and the Control Center can start/stop every service and stream their
-      # logs. Publish them on 0.0.0.0 only if the host is not directly reachable.
+      # Operator surfaces.
       - "127.0.0.1:6001:6001"   # Merchant Admin Dashboard
       - "127.0.0.1:6002:6002"   # Android SMS Observer
       - "127.0.0.1:6003:6003"   # Gmail Observer
       - "127.0.0.1:8090:8090"   # Process Supervisor Daemon
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - youpi-data:/app/data
     healthcheck:

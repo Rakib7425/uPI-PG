@@ -456,7 +456,7 @@ public class MainActivity extends Activity {
                 return;
             }
 
-            final String merchantId = json.optString("merchantId", "00000000-0000-0000-0000-000000000001");
+            final String merchantId = json.optString("merchantId", "e0f1926c-fbd0-4992-a9ea-c1aa22ae8485");
             final String deviceName = Build.MODEL;
 
             if (etBaseUrl != null) etBaseUrl.setText(serverUrl);

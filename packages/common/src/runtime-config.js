@@ -1,4 +1,4 @@
-import crypto from 'node:crypto';
+import crypto from "node:crypto";
 
 /**
  * Canonical Cloudflare Tunnel and Runtime URL Resolution Engine.
@@ -10,7 +10,7 @@ export const SERVICE_PORTS = Object.freeze({
   API: 6100,
   ADMIN: 6001,
   GMAIL: 6003,
-  STORE: 5000
+  STORE: 5000,
 });
 
 /**
@@ -28,8 +28,16 @@ export const SERVICE_PORTS = Object.freeze({
  * }>}
  */
 export function deriveCloudflareRoutes(config = {}) {
-  const rawDomain = (config.domain || config.domainTld || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/+$/, '');
-  const rawPrefix = (config.prefix || config.domainPrefix || 'pay').trim().toLowerCase().replace(/[^a-z0-9-_]/g, '') || 'pay';
+  const rawDomain = (config.domain || config.domainTld || "")
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, "")
+    .replace(/\/+$/, "");
+  const rawPrefix =
+    (config.prefix || config.domainPrefix || "pay")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9-_]/g, "") || "pay";
 
   if (!rawDomain) {
     return [];
@@ -37,55 +45,55 @@ export function deriveCloudflareRoutes(config = {}) {
 
   return [
     {
-      role: 'checkout',
-      name: 'Checkout',
+      role: "checkout",
+      name: "Checkout",
       publicHostname: `${rawPrefix}.${rawDomain}`,
       publicUrl: `https://${rawPrefix}.${rawDomain}`,
       serviceUrl: `http://localhost:${SERVICE_PORTS.CHECKOUT}`,
       port: SERVICE_PORTS.CHECKOUT,
-      purpose: 'Customer checkout / checkout portal',
-      optional: false
+      purpose: "Customer checkout / checkout portal",
+      optional: false,
     },
     {
-      role: 'api',
-      name: 'Payment API',
+      role: "api",
+      name: "Payment API",
       publicHostname: `${rawPrefix}-api.${rawDomain}`,
       publicUrl: `https://${rawPrefix}-api.${rawDomain}`,
       serviceUrl: `http://localhost:${SERVICE_PORTS.API}`,
       port: SERVICE_PORTS.API,
-      purpose: 'Payment API / merchant API / SSE / observer ingestion',
-      optional: false
+      purpose: "Payment API / merchant API / SSE / observer ingestion",
+      optional: false,
     },
     {
-      role: 'admin',
-      name: 'Merchant Admin',
+      role: "admin",
+      name: "Merchant Admin",
       publicHostname: `${rawPrefix}-admin.${rawDomain}`,
       publicUrl: `https://${rawPrefix}-admin.${rawDomain}`,
       serviceUrl: `http://localhost:${SERVICE_PORTS.ADMIN}`,
       port: SERVICE_PORTS.ADMIN,
-      purpose: 'Merchant/Admin panel',
-      optional: false
+      purpose: "Merchant/Admin panel",
+      optional: false,
     },
     {
-      role: 'gmail',
-      name: 'Gmail OAuth / Gmail Observer',
+      role: "gmail",
+      name: "Gmail OAuth / Gmail Observer",
       publicHostname: `${rawPrefix}-gmail.${rawDomain}`,
       publicUrl: `https://${rawPrefix}-gmail.${rawDomain}`,
       serviceUrl: `http://localhost:${SERVICE_PORTS.GMAIL}`,
       port: SERVICE_PORTS.GMAIL,
-      purpose: 'Gmail OAuth callback and Gmail observation service',
-      optional: false
+      purpose: "Gmail OAuth callback and Gmail observation service",
+      optional: false,
     },
     {
-      role: 'store',
-      name: 'Demo Store',
+      role: "store",
+      name: "Demo Store",
       publicHostname: `${rawPrefix}-store.${rawDomain}`,
       publicUrl: `https://${rawPrefix}-store.${rawDomain}`,
       serviceUrl: `http://localhost:${SERVICE_PORTS.STORE}`,
       port: SERVICE_PORTS.STORE,
-      purpose: 'Reference/demo store',
-      optional: true
-    }
+      purpose: "Reference/demo store",
+      optional: true,
+    },
   ];
 }
 
@@ -104,75 +112,154 @@ export function resolveRuntimeUrls(options = {}) {
   if (!mode) {
     if (process.env.YOUPI_MODE) {
       mode = process.env.YOUPI_MODE;
-    } else if (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test') {
-      mode = 'localhost';
+    } else if (
+      process.env.NODE_ENV === "development" ||
+      process.env.NODE_ENV === "test"
+    ) {
+      mode = "localhost";
     } else if (process.env.CLOUDFLARE_DOMAIN) {
-      mode = 'production';
+      mode = "production";
     } else {
-      mode = 'localhost';
+      mode = "localhost";
     }
   }
   mode = String(mode).toLowerCase();
-  const domain = (options.domain || options.domainTld || process.env.CLOUDFLARE_DOMAIN || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/+$/, '');
-  const prefix = (options.prefix || options.domainPrefix || process.env.DEPLOYMENT_PREFIX || 'pay').trim().toLowerCase().replace(/[^a-z0-9-_]/g, '') || 'pay';
+  const domain = (
+    options.domain ||
+    options.domainTld ||
+    process.env.CLOUDFLARE_DOMAIN ||
+    ""
+  )
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, "")
+    .replace(/\/+$/, "");
+  const prefix =
+    (
+      options.prefix ||
+      options.domainPrefix ||
+      process.env.DEPLOYMENT_PREFIX ||
+      "pay"
+    )
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9-_]/g, "") || "pay";
 
-  if (mode === 'production') {
+  if (mode === "production") {
     if (!domain) {
-      if ((process.env.NODE_ENV === 'test' || process.env.YOUPI_MODE === 'localhost') && options.envMode !== 'production') {
-        mode = 'localhost';
+      if (
+        (process.env.NODE_ENV === "test" ||
+          process.env.YOUPI_MODE === "localhost") &&
+        options.envMode !== "production"
+      ) {
+        mode = "localhost";
       } else {
-        throw new Error('Production Configuration Incomplete: Cloudflare Domain is required when running in PRODUCTION mode.');
+        throw new Error(
+          "Production Configuration Incomplete: Cloudflare Domain is required when running in PRODUCTION mode.",
+        );
       }
     }
   }
 
-  if (mode === 'production') {
-
+  if (mode === "production") {
     const routes = deriveCloudflareRoutes({ domain, prefix });
-    const getRoute = (role) => routes.find(r => r.role === role);
+    const getRoute = (role) => routes.find((r) => r.role === role);
 
     return {
-      mode: 'production',
+      mode: "production",
       isProduction: true,
       domain,
       prefix,
       routes,
-      checkoutUrl: getRoute('checkout')?.publicUrl || `https://${prefix}.${domain}`,
-      checkoutHostname: getRoute('checkout')?.publicHostname || `${prefix}.${domain}`,
-      apiUrl: getRoute('api')?.publicUrl || `https://${prefix}-api.${domain}`,
-      apiHostname: getRoute('api')?.publicHostname || `${prefix}-api.${domain}`,
-      adminUrl: getRoute('admin')?.publicUrl || `https://${prefix}-admin.${domain}`,
-      adminHostname: getRoute('admin')?.publicHostname || `${prefix}-admin.${domain}`,
-      gmailUrl: getRoute('gmail')?.publicUrl || `https://${prefix}-gmail.${domain}`,
-      gmailHostname: getRoute('gmail')?.publicHostname || `${prefix}-gmail.${domain}`,
-      storeUrl: getRoute('store')?.publicUrl || `https://${prefix}-store.${domain}`,
-      storeHostname: getRoute('store')?.publicHostname || `${prefix}-store.${domain}`
+      checkoutUrl:
+        getRoute("checkout")?.publicUrl || `https://${prefix}.${domain}`,
+      checkoutHostname:
+        getRoute("checkout")?.publicHostname || `${prefix}.${domain}`,
+      apiUrl: getRoute("api")?.publicUrl || `https://${prefix}-api.${domain}`,
+      apiHostname: getRoute("api")?.publicHostname || `${prefix}-api.${domain}`,
+      adminUrl:
+        getRoute("admin")?.publicUrl || `https://${prefix}-admin.${domain}`,
+      adminHostname:
+        getRoute("admin")?.publicHostname || `${prefix}-admin.${domain}`,
+      gmailUrl:
+        getRoute("gmail")?.publicUrl || `https://${prefix}-gmail.${domain}`,
+      gmailHostname:
+        getRoute("gmail")?.publicHostname || `${prefix}-gmail.${domain}`,
+      storeUrl:
+        getRoute("store")?.publicUrl || `https://${prefix}-store.${domain}`,
+      storeHostname:
+        getRoute("store")?.publicHostname || `${prefix}-store.${domain}`,
     };
   }
 
   // Localhost / Development Mode
   return {
-    mode: 'localhost',
+    mode: "localhost",
     isProduction: false,
-    domain: domain || 'localhost',
-    prefix: prefix || 'pay',
+    domain: domain || "localhost",
+    prefix: prefix || "pay",
     routes: [
-      { role: 'checkout', name: 'Checkout', publicHostname: 'localhost:7000', publicUrl: 'http://localhost:7000', serviceUrl: 'http://localhost:7000', port: 7000, purpose: 'Customer checkout / checkout portal', optional: false },
-      { role: 'api', name: 'Payment API', publicHostname: 'localhost:6100', publicUrl: 'http://localhost:6100', serviceUrl: 'http://localhost:6100', port: 6100, purpose: 'Payment API / merchant API / SSE / observer ingestion', optional: false },
-      { role: 'admin', name: 'Merchant Admin', publicHostname: 'localhost:6001', publicUrl: 'http://localhost:6001', serviceUrl: 'http://localhost:6001', port: 6001, purpose: 'Merchant/Admin panel', optional: false },
-      { role: 'gmail', name: 'Gmail OAuth / Gmail Observer', publicHostname: 'localhost:6003', publicUrl: 'http://localhost:6003', serviceUrl: 'http://localhost:6003', port: 6003, purpose: 'Gmail OAuth callback and Gmail observation service', optional: false },
-      { role: 'store', name: 'Demo Store', publicHostname: 'localhost:5000', publicUrl: 'http://localhost:5000', serviceUrl: 'http://localhost:5000', port: 5000, purpose: 'Reference/demo store', optional: true }
+      {
+        role: "checkout",
+        name: "Checkout",
+        publicHostname: "localhost:7000",
+        publicUrl: "http://localhost:7000",
+        serviceUrl: "http://localhost:7000",
+        port: 7000,
+        purpose: "Customer checkout / checkout portal",
+        optional: false,
+      },
+      {
+        role: "api",
+        name: "Payment API",
+        publicHostname: "localhost:6100",
+        publicUrl: "http://localhost:6100",
+        serviceUrl: "http://localhost:6100",
+        port: 6100,
+        purpose: "Payment API / merchant API / SSE / observer ingestion",
+        optional: false,
+      },
+      {
+        role: "admin",
+        name: "Merchant Admin",
+        publicHostname: "localhost:6001",
+        publicUrl: "http://localhost:6001",
+        serviceUrl: "http://localhost:6001",
+        port: 6001,
+        purpose: "Merchant/Admin panel",
+        optional: false,
+      },
+      {
+        role: "gmail",
+        name: "Gmail OAuth / Gmail Observer",
+        publicHostname: "localhost:6003",
+        publicUrl: "http://localhost:6003",
+        serviceUrl: "http://localhost:6003",
+        port: 6003,
+        purpose: "Gmail OAuth callback and Gmail observation service",
+        optional: false,
+      },
+      {
+        role: "store",
+        name: "Demo Store",
+        publicHostname: "localhost:5000",
+        publicUrl: "http://localhost:5000",
+        serviceUrl: "http://localhost:5000",
+        port: 5000,
+        purpose: "Reference/demo store",
+        optional: true,
+      },
     ],
-    checkoutUrl: 'http://localhost:7000',
-    checkoutHostname: 'localhost:7000',
-    apiUrl: 'http://localhost:6100',
-    apiHostname: 'localhost:6100',
-    adminUrl: 'http://localhost:6001',
-    adminHostname: 'localhost:6001',
-    gmailUrl: 'http://localhost:6003',
-    gmailHostname: 'localhost:6003',
-    storeUrl: 'http://localhost:5000',
-    storeHostname: 'localhost:5000'
+    checkoutUrl: "http://localhost:7000",
+    checkoutHostname: "localhost:7000",
+    apiUrl: "http://localhost:6100",
+    apiHostname: "localhost:6100",
+    adminUrl: "http://localhost:6001",
+    adminHostname: "localhost:6001",
+    gmailUrl: "http://localhost:6003",
+    gmailHostname: "localhost:6003",
+    storeUrl: "http://localhost:5000",
+    storeHostname: "localhost:5000",
   };
 }
 
@@ -182,21 +269,21 @@ export function resolveRuntimeUrls(options = {}) {
 export function createPairingPayload(options = {}) {
   const {
     serverUrl,
-    sessionId = `pair_sess_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`,
-    token = `tok_${crypto.randomBytes(8).toString('hex')}`,
-    merchantId = '00000000-0000-0000-0000-000000000001',
-    ttlMs = 10 * 60 * 1000 // 10 minutes default
+    sessionId = `pair_sess_${Date.now()}_${crypto.randomBytes(4).toString("hex")}`,
+    token = `tok_${crypto.randomBytes(8).toString("hex")}`,
+    merchantId = "e0f1926c-fbd0-4992-a9ea-c1aa22ae8485",
+    ttlMs = 10 * 60 * 1000, // 10 minutes default
   } = options;
 
   return {
-    version: 'v1',
-    type: 'YOUPI_SMS_GATEWAY_PAIR',
-    serverUrl: serverUrl || 'http://localhost:6100',
+    version: "v1",
+    type: "YOUPI_SMS_GATEWAY_PAIR",
+    serverUrl: serverUrl || "http://localhost:6100",
     sessionId,
     token,
     merchantId,
     expiresAt: Date.now() + ttlMs,
-    issuedAt: Date.now()
+    issuedAt: Date.now(),
   };
 }
 
@@ -204,23 +291,29 @@ export function createPairingPayload(options = {}) {
  * Validates pairing payload according to Part C5.
  */
 export function validatePairingPayload(payload) {
-  if (!payload || typeof payload !== 'object') {
-    return { valid: false, error: 'INVALID YOUPI PAIRING QR' };
+  if (!payload || typeof payload !== "object") {
+    return { valid: false, error: "INVALID YOUPI PAIRING QR" };
   }
-  if (payload.type !== 'YOUPI_SMS_GATEWAY_PAIR') {
-    return { valid: false, error: 'INVALID YOUPI PAIRING QR' };
+  if (payload.type !== "YOUPI_SMS_GATEWAY_PAIR") {
+    return { valid: false, error: "INVALID YOUPI PAIRING QR" };
   }
-  if (payload.version !== 'v1') {
-    return { valid: false, error: 'INVALID YOUPI PAIRING QR VERSION' };
+  if (payload.version !== "v1") {
+    return { valid: false, error: "INVALID YOUPI PAIRING QR VERSION" };
   }
   if (!payload.serverUrl || !payload.token || !payload.sessionId) {
-    return { valid: false, error: 'MALFORMED YOUPI PAIRING QR: Missing required fields' };
+    return {
+      valid: false,
+      error: "MALFORMED YOUPI PAIRING QR: Missing required fields",
+    };
   }
-  if (!payload.serverUrl.startsWith('http://') && !payload.serverUrl.startsWith('https://')) {
-    return { valid: false, error: 'INVALID SERVER URL PROTOCOL' };
+  if (
+    !payload.serverUrl.startsWith("http://") &&
+    !payload.serverUrl.startsWith("https://")
+  ) {
+    return { valid: false, error: "INVALID SERVER URL PROTOCOL" };
   }
   if (payload.expiresAt && Date.now() > payload.expiresAt) {
-    return { valid: false, error: 'PAIRING QR EXPIRED' };
+    return { valid: false, error: "PAIRING QR EXPIRED" };
   }
   return { valid: true };
 }
@@ -230,7 +323,7 @@ export function validatePairingPayload(payload) {
  */
 export function resolvePairingUrl(options = {}) {
   const urls = resolveRuntimeUrls(options);
-  return urls.apiUrl || 'http://localhost:6100';
+  return urls.apiUrl || "http://localhost:6100";
 }
 
 /**
@@ -267,26 +360,36 @@ export function resolveGmailRedirectUri(branding = {}) {
  * }}
  */
 export function resolveDefaultBranding(overrides = {}) {
-  const envAppName = (process.env.DEFAULT_APP_NAME || '').trim();
-  const appName = overrides.appName?.trim() || envAppName || 'YOUPI PG';
+  const envAppName = (process.env.DEFAULT_APP_NAME || "").trim();
+  const appName = overrides.appName?.trim() || envAppName || "YOUPI PG";
 
-  const envPrimaryColor = (process.env.DEFAULT_PRIMARY_COLOR || '').trim();
-  const primaryColor = overrides.primaryColor?.trim() || envPrimaryColor || '#2563eb';
+  const envPrimaryColor = (process.env.DEFAULT_PRIMARY_COLOR || "").trim();
+  const primaryColor =
+    overrides.primaryColor?.trim() || envPrimaryColor || "#2563eb";
 
-  const envSupportEmail = (process.env.DEFAULT_SUPPORT_EMAIL || '').trim();
-  const supportEmail = overrides.supportEmail?.trim() || envSupportEmail || 'support@youpi.local';
+  const envSupportEmail = (process.env.DEFAULT_SUPPORT_EMAIL || "").trim();
+  const supportEmail =
+    overrides.supportEmail?.trim() || envSupportEmail || "support@youpi.local";
 
-  const envSupportPhone = (process.env.DEFAULT_SUPPORT_PHONE || '').trim();
-  const supportPhone = overrides.supportPhone?.trim() || envSupportPhone || '9876543210';
+  const envSupportPhone = (process.env.DEFAULT_SUPPORT_PHONE || "").trim();
+  const supportPhone =
+    overrides.supportPhone?.trim() || envSupportPhone || "9876543210";
 
-  const envLogoUrl = (process.env.DEFAULT_LOGO_URL || '').trim() || null;
-  const logoUrl = overrides.logoUrl !== undefined ? overrides.logoUrl : envLogoUrl;
+  const envLogoUrl = (process.env.DEFAULT_LOGO_URL || "").trim() || null;
+  const logoUrl =
+    overrides.logoUrl !== undefined ? overrides.logoUrl : envLogoUrl;
 
   const defaultTrustBadge = `${appName} Verified Business`;
-  const trustBadgeText = overrides.trustBadgeText?.trim() || (process.env.DEFAULT_TRUST_BADGE_TEXT || '').trim() || defaultTrustBadge;
+  const trustBadgeText =
+    overrides.trustBadgeText?.trim() ||
+    (process.env.DEFAULT_TRUST_BADGE_TEXT || "").trim() ||
+    defaultTrustBadge;
 
   const defaultGuarantee = `100% Payment Protection by ${appName}`;
-  const footerGuarantee = overrides.footerGuarantee?.trim() || (process.env.DEFAULT_FOOTER_GUARANTEE || '').trim() || defaultGuarantee;
+  const footerGuarantee =
+    overrides.footerGuarantee?.trim() ||
+    (process.env.DEFAULT_FOOTER_GUARANTEE || "").trim() ||
+    defaultGuarantee;
 
   return {
     appName,
@@ -295,6 +398,6 @@ export function resolveDefaultBranding(overrides = {}) {
     supportPhone,
     logoUrl,
     trustBadgeText,
-    footerGuarantee
+    footerGuarantee,
   };
 }

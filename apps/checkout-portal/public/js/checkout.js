@@ -49,6 +49,16 @@
       }
     }
 
+    function extractQueryToken() {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const token = (params.get('auth_token') || params.get('token') || '').trim();
+        return token || null;
+      } catch {
+        return null;
+      }
+    }
+
     function getPreservedIdentity() {
       try {
         const raw = localStorage.getItem(STORAGE_KEY_IDENTITY);
@@ -110,11 +120,16 @@
       } catch { }
     }
 
-    // Immediately restore 1-week preserved identity if present
-    const initPreserved = getPreservedIdentity();
-    if (initPreserved && initPreserved.customer) {
-      activeCustomer = initPreserved.customer;
-      activeToken = initPreserved.token || null;
+    // Immediately restore 1-week preserved identity or extract query token
+    const queryTokenEarly = extractQueryToken();
+    if (queryTokenEarly) {
+      activeToken = queryTokenEarly;
+    } else {
+      const initPreserved = getPreservedIdentity();
+      if (initPreserved && initPreserved.customer) {
+        activeCustomer = initPreserved.customer;
+        activeToken = initPreserved.token || null;
+      }
     }
 
     // Notify parent if embedded in iframe
@@ -1476,6 +1491,18 @@
           return;
         }
 
+        if (activeToken && !data.customer && data.status === 'INITIATED') {
+          // Token rejected or expired by server: fall back cleanly to manual phone and OTP entry
+          clearPreservedIdentity();
+          activeToken = null;
+          activeCustomer = null;
+          setGatewayAuthMode(true);
+          goToAuthStep('mobile');
+          renderSavedAccountsUI();
+          dismissSplashScreen();
+          return;
+        }
+
         renderState(data);
         dismissSplashScreen();
       } catch (e) {
@@ -1553,7 +1580,7 @@
       state = data;
       const b = data.branding || {};
       const appName = (b.appName && b.appName !== 'YOUPI PG') ? b.appName : 'Mitto Pay';
-      const merchantName = (data.merchantName && data.merchantName !== 'YOUPI Demo Store' && data.merchantName !== 'Merchant Checkout') ? data.merchantName : 'V-Visa Business';
+      const merchantName = (data.merchantName && data.merchantName !== 'RDTCCS' && data.merchantName !== 'Merchant Checkout') ? data.merchantName : 'V-Visa Business';
 
       // 1. Dynamic Title
       document.title = `${merchantName} · ${appName} Checkout`;
@@ -2024,18 +2051,32 @@
       }
 
       // 3. Pre-Gateway Customer Authentication Gate (Preserves identity up to 1 week)
+      const preserved = getPreservedIdentity();
+      if (preserved && preserved.token && !activeToken) {
+        activeToken = preserved.token;
+      }
       if (data.customer) {
         activeCustomer = data.customer;
-      } else if (!activeCustomer) {
-        const preserved = getPreservedIdentity();
-        if (preserved && preserved.customer) {
-          activeCustomer = preserved.customer;
-          activeToken = preserved.token || activeToken;
+        if (activeToken) {
+          savePreservedIdentity(activeCustomer, activeToken);
         }
+      } else if (!activeCustomer && preserved && preserved.customer) {
+        activeCustomer = preserved.customer;
       }
-      const hasCustomer = Boolean(data.customer || activeCustomer);
 
-      if (!hasCustomer) {
+      const isPreAuth = Boolean(activeToken && (data.customer || activeCustomer));
+      const hasCustomer = Boolean(
+        (data.customer || activeCustomer) &&
+        (data.status !== 'INITIATED' || Boolean(activeToken))
+      );
+
+      if (!hasCustomer && !isPreAuth) {
+        if (data.customer && data.customer.phone) {
+          const mobInput = document.getElementById('authMobileInput');
+          if (mobInput && !mobInput.value) {
+            mobInput.value = String(data.customer.phone).replace(/\D/g, '').slice(-10);
+          }
+        }
         setGatewayAuthMode(true);
         const stepMob = document.getElementById('authStepMobile');
         const isAlreadyOnMobile = stepMob && !stepMob.hidden;
@@ -2815,9 +2856,20 @@
       });
     }
 
-    // Boot checkout - restore preserved 1-week identity if available
+    // Boot checkout - restore preserved 1-week identity or query token
+    const bootQueryToken = extractQueryToken();
     const bootPreserved = getPreservedIdentity();
-    if (bootPreserved && bootPreserved.customer) {
+    if (bootQueryToken) {
+      activeToken = bootQueryToken;
+      try {
+        const encToken = encryptClientStorage(bootQueryToken);
+        if (encToken) localStorage.setItem('ypg_customer_token', encToken);
+      } catch {}
+      if (bootPreserved && bootPreserved.customer) {
+        activeCustomer = bootPreserved.customer;
+        updateCustomerDisplay(activeCustomer);
+      }
+    } else if (bootPreserved && bootPreserved.customer) {
       activeCustomer = bootPreserved.customer;
       activeToken = bootPreserved.token || getStoredCustomerToken() || null;
       updateCustomerDisplay(activeCustomer);

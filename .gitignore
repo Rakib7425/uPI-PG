@@ -78,3 +78,6 @@ TRACKER.md
 # Android / Gradle build output
 .gradle/
 build/
+
+
+data/

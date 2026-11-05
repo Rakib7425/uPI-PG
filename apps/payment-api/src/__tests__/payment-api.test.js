@@ -32,8 +32,8 @@ describe('Payment API End-to-End HTTP Integration Tests', () => {
     process.env.NODE_ENV = 'test';
     process.env.YOUPI_ALLOWED_RETURN_ORIGINS = 'https://merchant.example';
     testDb = new Database({ inMemory: true });
-    // Use an ephemeral random port (e.g. 0 or high port 6199) to prevent collisions
-    serverInstance = await startServer(6199, testDb);
+    // Use an ephemeral random port (e.g. 0 or high port 6173) to prevent collisions
+    serverInstance = await startServer(6173, testDb);
     baseUrl = `http://localhost:${serverInstance.port}`;
     // Merchant-private fields on GET /payments/:id are only returned to the owning
     // merchant, so read the seeded secret through the repository (the raw column is
@@ -790,8 +790,7 @@ describe('Payment API End-to-End HTTP Integration Tests', () => {
     let retryServer = null;
 
     try {
-      const retryPort = await freePort();
-      retryServer = await startServer(retryPort, retryDb);
+      retryServer = await startServer(0, retryDb);
       const retryBase = `http://localhost:${retryServer.port}`;
 
       const updateRes = await request('/api/v1/admin/merchant-settings', {
